@@ -1,0 +1,11 @@
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/bin/Debug/net10.0/MicroCrm.Domain.deps.json
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/bin/Debug/net10.0/MicroCrm.Domain.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/bin/Debug/net10.0/MicroCrm.Domain.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/MicroCrm.Domain.GeneratedMSBuildEditorConfig.editorconfig
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/MicroCrm.Domain.AssemblyInfoInputs.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/MicroCrm.Domain.AssemblyInfo.cs
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/MicroCrm.Domain.csproj.CoreCompileInputs.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/MicroCrm.Domain.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/refint/MicroCrm.Domain.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/MicroCrm.Domain.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Domain/obj/Debug/net10.0/ref/MicroCrm.Domain.dll

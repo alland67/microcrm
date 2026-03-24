@@ -1,0 +1,56 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "MicroCrm.Infrastructure/1.0.0": {
+        "dependencies": {
+          "MicroCrm.Application": "1.0.0",
+          "MicroCrm.Domain": "1.0.0"
+        },
+        "runtime": {
+          "MicroCrm.Infrastructure.dll": {}
+        }
+      },
+      "MicroCrm.Application/1.0.0": {
+        "dependencies": {
+          "MicroCrm.Domain": "1.0.0"
+        },
+        "runtime": {
+          "MicroCrm.Application.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "MicroCrm.Domain/1.0.0": {
+        "runtime": {
+          "MicroCrm.Domain.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "MicroCrm.Infrastructure/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "MicroCrm.Application/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "MicroCrm.Domain/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

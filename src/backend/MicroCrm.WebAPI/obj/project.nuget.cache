@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "bjjXXbKulhc=",
+  "success": true,
+  "projectFilePath": "/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.WebAPI/MicroCrm.WebAPI.csproj",
+  "expectedPackageFiles": [
+    "/Users/allandowns/.nuget/packages/microsoft.aspnetcore.openapi/10.0.0/microsoft.aspnetcore.openapi.10.0.0.nupkg.sha512",
+    "/Users/allandowns/.nuget/packages/microsoft.openapi/2.0.0/microsoft.openapi.2.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

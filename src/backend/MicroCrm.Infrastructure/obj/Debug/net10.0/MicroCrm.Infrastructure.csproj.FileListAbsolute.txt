@@ -1,0 +1,17 @@
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Infrastructure.deps.json
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Infrastructure.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Infrastructure.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Application.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Domain.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Application.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/bin/Debug/net10.0/MicroCrm.Domain.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.csproj.AssemblyReference.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.AssemblyInfoInputs.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.AssemblyInfo.cs
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.csproj.CoreCompileInputs.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.E039B0E4.Up2Date
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/refint/MicroCrm.Infrastructure.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/MicroCrm.Infrastructure.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Infrastructure/obj/Debug/net10.0/ref/MicroCrm.Infrastructure.dll

@@ -1,0 +1,15 @@
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/bin/Debug/net10.0/MicroCrm.Application.deps.json
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/bin/Debug/net10.0/MicroCrm.Application.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/bin/Debug/net10.0/MicroCrm.Application.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/bin/Debug/net10.0/MicroCrm.Domain.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/bin/Debug/net10.0/MicroCrm.Domain.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.csproj.AssemblyReference.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.GeneratedMSBuildEditorConfig.editorconfig
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.AssemblyInfoInputs.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.AssemblyInfo.cs
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.csproj.CoreCompileInputs.cache
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.09E0CEBD.Up2Date
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/refint/MicroCrm.Application.dll
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/MicroCrm.Application.pdb
+/Users/allandowns/development/apps/MicroCrm/src/backend/MicroCrm.Application/obj/Debug/net10.0/ref/MicroCrm.Application.dll
