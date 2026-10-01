@@ -1,6 +1,7 @@
 using MicroCrm.Api.Data;
 
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 
 namespace MicroCrm.Api.Features.Contacts;
 
@@ -11,8 +12,21 @@ public static class ContactsEndpoints
         var group = app.MapGroup("/api/contacts");
 
         group.MapPost(string.Empty, CreateContact);
+        group.MapGet("/{id:guid}", GetContact);
 
         return app;
+    }
+
+    private static async Task<Results<Ok<ContactResponse>, NotFound>> GetContact(
+        Guid id,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        return contact is null
+            ? TypedResults.NotFound()
+            : TypedResults.Ok(ContactResponse.From(contact));
     }
 
     private static async Task<Created<ContactResponse>> CreateContact(
