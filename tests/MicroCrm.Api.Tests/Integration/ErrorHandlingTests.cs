@@ -39,6 +39,17 @@ public sealed class ErrorHandlingTests(ApiFactory factory) : IClassFixture<ApiFa
     }
 
     [Fact]
+    public async Task ListContacts_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC038()
+    {
+        await BreakDatabaseAsync();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/contacts", Ct);
+
+        await AssertSafe500Async(response);
+    }
+
+    [Fact]
     public async Task CreateContact_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC038()
     {
         await BreakDatabaseAsync();
@@ -47,5 +58,34 @@ public sealed class ErrorHandlingTests(ApiFactory factory) : IClassFixture<ApiFa
         var response = await client.PostAsJsonAsync("/api/contacts", new { firstName = "Ada" }, Ct);
 
         await AssertSafe500Async(response);
+    }
+}
+
+// Separate fixture from ErrorHandlingTests: the trigger installed here must not leak into the tests that drop the table.
+public sealed class NonUniqueConstraintFailureTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task CreateContact_WhenNonUniqueConstraintFails_Returns500Problem_AC038()
+    {
+        // Force the host to start and migrations to run before the trigger is installed.
+        _ = factory.Server;
+        await factory.ExecuteSqlAsync(
+            "CREATE TRIGGER FailContactInsert BEFORE INSERT ON Contacts BEGIN SELECT RAISE(ABORT, 'x'); END;");
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/contacts",
+            new { firstName = "Ada", email = "ada.trigger@example.com" },
+            Ct);
+
+        // A constraint failure that is not a UNIQUE violation must stay a 500, never a 409 "email already exists".
+        Assert.NotEqual(System.Net.HttpStatusCode.Conflict, response.StatusCode);
+        using var problem = await ProblemAssert.IsProblemAsync(response, 500);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.DoesNotContain("SqliteException", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
     }
 }

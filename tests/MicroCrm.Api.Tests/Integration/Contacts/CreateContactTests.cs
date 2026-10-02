@@ -160,4 +160,100 @@ public sealed class CreateContactTests(ApiFactory factory) : IClassFixture<ApiFa
                 $"'{name}' must carry a UTC offset, got '{text}'");
         }
     }
+
+    [Fact]
+    public async Task CreateContact_WithSurroundingWhitespace_StoresTrimmed_AC005()
+    {
+        using var client = factory.CreateClient();
+        var request = new
+        {
+            firstName = "  Ada\t",
+            lastName = "\n Lovelace  ",
+            email = "  ada.ac005@example.com ",
+            phone = " +44 20 7946 0000  ",
+            company = "   Analytical Engines Ltd ",
+            notes = "  First programmer.\n",
+        };
+
+        var created = await client.PostAsJsonAsync("/api/contacts", request, Ct);
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdDoc = await ReadJsonAsync(created);
+        var id = createdDoc.RootElement.GetProperty("id").GetGuid();
+        var fetched = await client.GetAsync($"/api/contacts/{id}", Ct);
+        Assert.Equal(HttpStatusCode.OK, fetched.StatusCode);
+        using var doc = await ReadJsonAsync(fetched);
+        var root = doc.RootElement;
+        Assert.Equal("Ada", root.GetProperty("firstName").GetString());
+        Assert.Equal("Lovelace", root.GetProperty("lastName").GetString());
+        Assert.Equal("ada.ac005@example.com", root.GetProperty("email").GetString());
+        Assert.Equal("+44 20 7946 0000", root.GetProperty("phone").GetString());
+        Assert.Equal("Analytical Engines Ltd", root.GetProperty("company").GetString());
+        Assert.Equal("First programmer.", root.GetProperty("notes").GetString());
+    }
+
+    [Fact]
+    public async Task CreateContact_WithBlankOptionalFields_ReturnsNulls_AC006()
+    {
+        using var client = factory.CreateClient();
+        var request = new
+        {
+            firstName = "Blank",
+            lastName = "",
+            email = "   ",
+            phone = "",
+            company = "   ",
+            notes = " \t ",
+        };
+
+        var created = await client.PostAsJsonAsync("/api/contacts", request, Ct);
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdDoc = await ReadJsonAsync(created);
+        var id = createdDoc.RootElement.GetProperty("id").GetGuid();
+        AssertOptionalFieldsNull(createdDoc.RootElement);
+
+        var fetched = await client.GetAsync($"/api/contacts/{id}", Ct);
+        Assert.Equal(HttpStatusCode.OK, fetched.StatusCode);
+        using var doc = await ReadJsonAsync(fetched);
+        AssertOptionalFieldsNull(doc.RootElement);
+    }
+
+    // Guard: no limits exist yet, so this passes at RED. It catches an off-by-one or measuring before trimming.
+    [Fact]
+    public async Task CreateContact_FieldsAtMax_Returns201_AC009()
+    {
+        using var client = factory.CreateClient();
+        var email = new string('a', 254 - "@example.com".Length) + "@example.com";
+        var request = new
+        {
+            firstName = "  " + new string('f', 100) + " ",
+            lastName = new string('l', 100),
+            email,
+            phone = " " + new string('1', 50) + "\t",
+            company = new string('c', 200),
+            notes = "\n" + new string('n', 4000) + "  ",
+        };
+
+        var response = await client.PostAsJsonAsync("/api/contacts", request, Ct);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var doc = await ReadJsonAsync(response);
+        var root = doc.RootElement;
+        Assert.Equal(new string('f', 100), root.GetProperty("firstName").GetString());
+        Assert.Equal(new string('l', 100), root.GetProperty("lastName").GetString());
+        Assert.Equal(email, root.GetProperty("email").GetString());
+        Assert.Equal(new string('1', 50), root.GetProperty("phone").GetString());
+        Assert.Equal(new string('c', 200), root.GetProperty("company").GetString());
+        Assert.Equal(new string('n', 4000), root.GetProperty("notes").GetString());
+    }
+
+    private static void AssertOptionalFieldsNull(JsonElement root)
+    {
+        foreach (var name in new[] { "lastName", "email", "phone", "company", "notes" })
+        {
+            Assert.True(root.TryGetProperty(name, out var value), $"'{name}' is missing from the JSON");
+            Assert.Equal(JsonValueKind.Null, value.ValueKind);
+        }
+    }
 }
