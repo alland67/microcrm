@@ -27,6 +27,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero));
 
+    /// <summary>Runs SQL on a fresh connection to the test database (setup, fault injection, inspection).</summary>
+    public async Task ExecuteSqlAsync(string sql)
+    {
+        await using var connection = new SqliteConnection(ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
