@@ -489,3 +489,6 @@ node_modules/
 *.db
 *.db-shm
 *.db-wal
+
+# Agent memory written under docs/ when a session runs from that directory
+docs/.claude/

@@ -1,0 +1,22 @@
+namespace MicroCrm.Api.Features.Contacts;
+
+public sealed class Contact
+{
+    public Guid Id { get; set; }
+
+    public string FirstName { get; set; } = "";
+
+    public string? LastName { get; set; }
+
+    public string? Email { get; set; }
+
+    public string? Phone { get; set; }
+
+    public string? Company { get; set; }
+
+    public string? Notes { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset UpdatedAt { get; set; }
+}

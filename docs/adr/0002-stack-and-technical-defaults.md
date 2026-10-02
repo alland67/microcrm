@@ -1,7 +1,7 @@
 # ADR-0002: Stack and technical defaults for MicroCRM
 
-**Status:** Proposed. Review and change to Accepted (or edit) before the first `/build`.
-**Date:** YYYY-MM-DD
+**Status:** Accepted
+**Date:** 2026-10-01
 
 ## Context
 MicroCRM is a new, small, single-user app for contacts and to-dos. The owner chose ASP.NET Core on .NET 10 with REST APIs for the backend and React + TypeScript for the frontend. The harness needs concrete defaults so agents don't make ad-hoc choices.

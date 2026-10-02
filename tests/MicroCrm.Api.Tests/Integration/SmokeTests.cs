@@ -1,10 +1,10 @@
-using Microsoft.AspNetCore.Mvc.Testing;
+using MicroCrm.Api.Tests.Integration.Infrastructure;
 
 namespace MicroCrm.Api.Tests.Integration;
 
 // Harness smoke test: proves the API host boots under WebApplicationFactory.
-public sealed class SmokeTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class SmokeTests(ApiFactory factory)
+    : IClassFixture<ApiFactory>
 {
     [Fact]
     public async Task OpenApiDocument_IsServed_InDevelopment()
