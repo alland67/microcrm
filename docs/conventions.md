@@ -16,7 +16,7 @@ Read before writing or reviewing code. Changes to this file go through an ADR.
 | Delete | `DELETE /api/contacts/{id}` → **204**; **404** if missing |
 | Nested | `GET /api/contacts/{id}/todos` for a contact's to-dos |
 | JSON | camelCase; enums as strings; dates are ISO-8601 UTC (`DateTimeOffset`); omit nothing, use `null` |
-| Errors | RFC 9457 **ProblemDetails** (`application/problem+json`). 400 validation (with `errors` dictionary), 404 not found, 409 conflict. Never leak exception details. |
+| Errors | RFC 9457 **ProblemDetails** (`application/problem+json`). 400 validation (with `errors` dictionary, field-validation errors only), 404 not found, 409 conflict. A 400 for an unreadable body (malformed JSON, empty body, wrong JSON type) is plain ProblemDetails without `errors`. Never leak exception details. |
 | Concurrency | Not in v1 unless a spec asks for it |
 | Docs | OpenAPI served at `/openapi/v1.json` in Development |
 
@@ -36,16 +36,17 @@ src/MicroCrm.Api/
 ```
 
 - Minimal APIs with `MapGroup` per feature, `TypedResults` return types (`Results<Ok<T>, NotFound>`), `.WithName()` + `.WithSummary()` for OpenAPI.
-- Validation: DataAnnotations on request records + `builder.Services.AddValidation()` (built-in in .NET 10). Business-rule validation that needs the DB returns a ProblemDetails 400/409 from the handler.
+- Validation: plain validation functions called from the handler (`ContactInput.Parse`, `ListQuery.Parse`) that trim first, then validate, and return all errors together; the handler returns `TypedResults.ValidationProblem(errors)`. Set `RouteHandlerOptions.ThrowOnBadRequest = false`. Conflicts use `TypedResults.Problem(statusCode: 409, ...)` so the content type is `application/problem+json`. See ADR-0004.
 - `async` all the way; accept and pass `CancellationToken`.
 - Inject `TimeProvider` for anything time-based (never `DateTime.UtcNow` directly) so tests can control time.
 - Nullable reference types on; warnings are errors (see `Directory.Build.props`).
 - EF Core: SQLite file DB in dev (`microcrm.db`, gitignored); one migration per spec task that changes the schema. Keep queries in handlers until duplication justifies extraction.
+- SQLite `AlterColumn` migrations: EF rebuilds the table from the migration's Designer model, so hand-editing `Up` does not change the rebuild. Change the model or configuration and regenerate the migration instead.
 
 ## Backend tests (`tests/MicroCrm.Api.Tests/`)
 
 - **xUnit v3**, plain `Assert` (no assertion library unless an ADR adds one).
-- `Integration/`: preferred for API acceptance criteria. Use `WebApplicationFactory<Program>`, call real HTTP endpoints with `HttpClient`, and assert status code, headers, and JSON body. Replace the DB with **SQLite in-memory** (`DataSource=:memory:` with an open connection held for the test's lifetime), fresh per test class. Shared setup lives in `Integration/Infrastructure/` (e.g. `ApiFactory`).
+- `Integration/`: preferred for API acceptance criteria. Use `WebApplicationFactory<Program>`, call real HTTP endpoints with `HttpClient`, and assert status code, headers, and JSON body. Replace the DB with a **named shared-cache in-memory SQLite database**, one per fixture (test class), with a connection per request (per `DbContext`). See ADR-0005. Shared setup lives in `Integration/Infrastructure/` (e.g. `ApiFactory`).
 - `Unit/`: pure domain logic (entity rules, paging math) with no host.
 - Naming: `Method_Scenario_Expected_ACnnn`. One behavior per test; Arrange/Act/Assert.
 - Pass `TestContext.Current.CancellationToken` to async calls.
