@@ -1,6 +1,6 @@
 # 003: To-dos API: CRUD, optional contact link, due date, complete/reopen
 
-**Status:** Approved
+**Status:** Done
 **Type:** Feature
 **Author:** Allan Downs with planner
 **Created:** 2026-10-05  **Approved:** 2026-10-05
@@ -220,4 +220,23 @@ None open. The user accepted every recommendation on 2026-10-05 ("accept all rec
 - [x] Q9: Due date range. **Resolved: (a)** any real calendar date expressible as `YYYY-MM-DD` (years 0001 to 9999), past dates allowed (AC-005, AC-012). Rejected: (b) rejecting past dates.
 
 ## Implementation notes
-_Added by documenter after completion: links to main modules and tests._
+Modules (under `src/MicroCrm.Api/`):
+- `Features/Todos/TodosEndpoints.cs`: all eight operations (`MapGroup("/api/todos")` plus `GET /api/contacts/{id}/todos`); delete is a single `ExecuteDeleteAsync`; create and update map SQLite code 787 to the `contactId` 400 with no contact pre-check; update marks `ContactId` modified so the FK is re-checked
+- `Features/Todos/Todo.cs` (entity, `Complete`/`Reopen`), `TodoDtos.cs`, `TodoInput.cs` (shared create/update core; `dueDate` parsed with `DateOnly.TryParseExact`), `TodoListQuery.cs` (paging, `status`, `contactId`)
+- `Data/TodoConfiguration.cs` (tick converters, FK `SetNull`, indexes, `CK_Todos_DoneState`), `Data/Migrations/*_CreateTodos.cs`, `Data/SqliteErrors.cs` (`IsForeignKeyViolation`)
+- `Program.cs`: `Foreign Keys=True` forced on the connection string; `MapTodosEndpoints()`
+- `Common/TextNormalization.cs`: `TrimToNull`, moved out of `ContactInput` and shared
+- `MicroCrm.Api.http`: sample to-do requests
+- Contact endpoints are unchanged; the unlink happens in the database.
+
+Tests (under `tests/MicroCrm.Api.Tests/`): `Integration/Todos/` (19 classes, from `CreateTodoTests` to `TodoStoreTests`, which pins the schema, the FK, the CHECK constraint and the indexes), `Unit/Todos/` (`TodoInputTests`, `TodoListQueryTests`, `TodoTests`), extended `Integration/OpenApiTests.cs` and `Integration/Infrastructure/ApiFactory.cs`. AC to test mapping: `tasks.md` Traceability. Review: `review.md` (FINAL, 649/649 passing; NFR-003 measured at a 32 ms maximum with 10,000 to-dos; NFR-004 inspected). Docs: `docs/conventions.md`, `docs/architecture.md`, ADR-0006 (amended), ADR-0007, ADR-0008, ADR-0009.
+
+Open follow-ups (none block this spec):
+- Any future migration that rebuilds `Contacts` unlinks every to-do (ADR-0008); it needs a survival test and a safe technique first.
+- A tool that opens the database with foreign keys off can leave dangling `contactId` values (`docs/architecture.md`, Known risks).
+- The 787 mapping assumes `Todos.ContactId` is the only foreign key on `Todos`.
+- `IX_Todos_IsDone_DueDate` is not seeked by the status filters (EF emits `NOT ("IsDone")`); fine at 10,000 to-dos.
+- Optional code nit: `TodoListQuery` could use `TextNormalization.TrimToNull`.
+- Optional test debt: shared gate helper, shared raw-SQL helpers, shared `UtcTimestamp` regex helper.
+- EF Core logs an error-level entry with a stack trace for each expected 787 to 400 (and the contacts 409); consider filtering `Microsoft.EntityFrameworkCore.Update`.
+- The web client (specs 005, 006) must treat `dueDate` as a plain string and never pass it through `new Date(...)`.

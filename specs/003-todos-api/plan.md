@@ -46,7 +46,7 @@ Queries stay in the handlers (conventions). A to-do list query helper shared by 
 | `tests/.../Integration/Todos/*.cs` | new | See Test strategy |
 | `tests/.../Unit/Todos/*.cs` | new | `TodoInputTests`, `TodoListQueryTests`, `TodoTests` |
 | `tests/.../Integration/OpenApiTests.cs` | modified | NFR-001 for to-do operations |
-| `docs/adr/0007..0009` | new (planner) | Proposed |
+| `docs/adr/0007..0009` | new (planner) | Accepted |
 | `docs/conventions.md`, `docs/architecture.md`, `docs/adr/0006-*.md`, CHANGELOG | modified (documenter, D-01) | Date-only exception, new messages, data model, migration hazard |
 
 ## Interfaces & data
@@ -197,8 +197,8 @@ Indexes
 |---|---|---|---|
 | Contact delete unlinks (AC-062..AC-066) | FK action `UPDATE Todos SET ContactId = NULL WHERE ContactId = ?` | `IX_Todos_ContactId` | Without a child-key index SQLite scans `Todos` on **every** contact delete (SQLite FK docs recommend indexing child keys). EF Core creates it for the FK anyway. |
 | `?contactId=` filter (AC-053, AC-055), nested list (AC-057), `contactId` + `status` | `ContactId = ?` [+ status] | `IX_Todos_ContactId` | Highly selective (NFR-003 shape: ~10 to-dos per contact). The few matching rows are sorted in memory. |
-| `status=overdue` (AC-049) | `IsDone = 0 AND DueDate IS NOT NULL AND DueDate < ?today` | `IX_Todos_IsDone_DueDate` | Range scan: equality on the leading column, range on the second. This is the hot query for spec 006's to-dos page. |
-| `status=open` / `status=done` (AC-047, AC-048) | `IsDone = ?` | `IX_Todos_IsDone_DueDate` (leading column) | Lets `COUNT(*)` and the filter walk only one half of the table. Low selectivity, but harmless. |
+| `status=overdue` (AC-049) | `IsDone = 0 AND DueDate IS NOT NULL AND DueDate < ?today` | `IX_Todos_IsDone_DueDate` (intended; see note) | Intended as an equality-on-the-leading-column, range-on-the-second seek. **As built it does not seek:** EF Core emits `NOT ("IsDone")` rather than `"IsDone" = 0`, so without `ANALYZE` SQLite scans the table; after `ANALYZE` it uses a skip-scan on this index. NFR-003 is still met with a wide margin (31.5 ms slowest first request, 10,000 to-dos; FINAL review section 3). This is the hot query for spec 006's to-dos page. |
+| `status=open` / `status=done` (AC-047, AC-048) | `IsDone = ?` | `IX_Todos_IsDone_DueDate` (leading column; same `NOT ("IsDone")` note, so a scan without `ANALYZE`) | Intended to let `COUNT(*)` and the filter walk only one half of the table. Low selectivity, but harmless. |
 | Unfiltered list (AC-042..AC-045) | `ORDER BY DueDate IS NULL, DueDate, CreatedAt, Id` + `COUNT(*)` | none (scan + sort) | The `IS NULL` sort key is an expression. EF Core can't model expression indexes, so no plain index can deliver this order. Sorting ≤ 10,000 small rows is a few milliseconds in SQLite, well inside NFR-003's 500 ms. Revisit with a measured need (for example a stored `HasDueDate` column), not speculatively. |
 
 No index on `CreatedAt`, `UpdatedAt`, or `Title`: nothing filters on them. The primary key covers lookups by id.
@@ -278,7 +278,7 @@ Therefore:
 
 ### 7. Lists (AC-042..AC-061)
 - One private helper builds the query: `AsNoTracking()`, optional `ContactId == x`, optional status predicate, then `CountAsync`, then `OrderBy(t => t.DueDate == null).ThenBy(t => t.DueDate).ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)`, `Skip`/`Take` (only if `TryGetSkip` succeeds; otherwise an empty page with the real `totalCount`, as contacts do).
-- **What "`id` ascending" means:** SQLite compares EF's uppercase GUID text with `BINARY` collation. For hex text that order equals the ordinal order of the lowercase strings the API returns, because digits sort before letters in both cases. Tests must sort expected ids with `string.CompareOrdinal(a.ToString(), b.ToString())`, **not** `Guid.CompareTo`, which orders bytes differently.
+- **What "`id` ascending" means:** SQLite compares EF's uppercase GUID text with `BINARY` collation. For hex text that order equals the ordinal order of the lowercase strings the API returns, because digits sort before letters in both cases. Tests must sort expected ids with `string.CompareOrdinal(a.ToString(), b.ToString())`. (A 200,000-pair probe at T-10 found that on .NET 10 `Guid.CompareTo` agrees with this text order, so it would also work; only a little-endian `ToByteArray` comparison differs. The tests use `string.CompareOrdinal` so the expectation mirrors what SQLite does.)
 - Tests create to-dos without advancing the fake clock to get equal `createdAt` (to exercise the `id` tiebreak), and with `Advance` to get distinct ones.
 - Nested endpoint: parse the query first (400), then `AnyAsync(c => c.Id == id)` on `Contacts` (false → 404 problem), then the shared helper with `ContactId == id`. A contact deleted between the check and the list gives 200 with an empty page, which is in the documented set.
 - `?contactId=` for an unknown contact on `GET /api/todos` → 200 empty page (Q8, AC-053). Deliberately no contact lookup.
@@ -375,7 +375,7 @@ None. `SqliteConnectionStringBuilder` is in Microsoft.Data.Sqlite (already refer
 - **Hand-off to specs 005/006:** `dueDate` is a plain date string (ADR-0007; don't parse it with `new Date`). Overdue uses the server's UTC date. The nested endpoint is paged.
 
 ## ADRs
-- **ADR-0007** Date-only `dueDate` (`docs/adr/0007-date-only-due-date.md`): Proposed. Records the exception to the conventions date rule; the conventions amendment is scheduled in D-01.
-- **ADR-0008** Contact link enforced by a foreign key (`docs/adr/0008-contact-link-enforced-by-foreign-key.md`): Proposed. FK `ON DELETE SET NULL`, FKs forced on, 787 → 400, no pre-check, migration hazard.
-- **ADR-0009** To-do timestamps as UTC ticks (`docs/adr/0009-todo-timestamps-as-utc-ticks.md`): Proposed. EF Core SQLite ordering limitation.
+- **ADR-0007** Date-only `dueDate` (`docs/adr/0007-date-only-due-date.md`): Accepted. Records the exception to the conventions date rule; the conventions amendment is scheduled in D-01.
+- **ADR-0008** Contact link enforced by a foreign key (`docs/adr/0008-contact-link-enforced-by-foreign-key.md`): Accepted. FK `ON DELETE SET NULL`, FKs forced on, 787 → 400, no pre-check, migration hazard.
+- **ADR-0009** To-do timestamps as UTC ticks (`docs/adr/0009-todo-timestamps-as-utc-ticks.md`): Accepted. EF Core SQLite ordering limitation.
 - Accept all three with this plan.

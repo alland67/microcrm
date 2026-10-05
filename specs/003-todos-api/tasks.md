@@ -348,7 +348,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
       - class `TodoErrorHandlingTests`: `DeleteTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`
       - new class `DeleteTodoRejectedByDatabaseTests` (**own fixture**): `DeleteTodo_WhenDatabaseRejects_Returns500AndTodoStillExists_AC073` (trigger `BEFORE DELETE ON Todos`)
   - **Likely source files:** `S/Features/Todos/TodosEndpoints.cs` (DELETE: `ExecuteDeleteAsync`; 0 → 404 problem, else 204), `S/MicroCrm.Api.http`
-  - **Guards:** AC-039 non-GUID (no route). AC-041 fails at RED only because the delete in its arrange step gets 405; its 404 branches already exist from T-07/T-08. The AC-073 tests fail at RED (405 instead of 500).
+  - **Guards:** none of the AC-039 rows. The non-GUID rows were first labelled guards ("no route"), but at RED they returned 405, because DELETE wasn't mapped and the method policy runs before the `:guid` constraint; they became 404 only once DELETE was mapped. AC-041 fails at RED only because the delete in its arrange step gets 405; its 404 branches already exist from T-07/T-08. The AC-073 tests fail at RED (405 instead of 500).
   - **Expected RED:** 405 (DELETE isn't mapped on `/api/todos/{id}`).
   - **Done when:**
     - deleting an existing to-do → 204 with an empty body, gone for GET on new connections;
@@ -373,7 +373,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
       - `ListTodos_OrdersByDueDateNullsLastThenCreatedAtThenId_AC044`:
         - mixed due dates, some null;
         - equal due dates with distinct `createdAt` (`factory.Time.Advance`) and with equal `createdAt` (no advance);
-        - expected ids for the tiebreak sorted with `string.CompareOrdinal` on the lowercase string, **not** `Guid.CompareTo`.
+        - expected ids for the tiebreak sorted with `string.CompareOrdinal` on the lowercase string (on .NET 10 `Guid.CompareTo` happens to give the same order, but the tests mirror SQLite's text comparison).
       - `ListTodos_ShowsUpdatedValues_AC020`
       - `ListTodos_ExcludesDeletedTodo_AC038`
       - `ListTodos_AfterContactDelete_ShowsTodosUnlinkedAndOtherwiseUnchanged_AC063`: includes a **completed** linked to-do; its `isDone`, `completedAt`, and `updatedAt` are unchanged after the contact delete (clock advanced before the delete).
@@ -510,8 +510,8 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
       - all 200;
       - afterwards each to-do is either (done, `completedAt` set) or (open, `completedAt` null), checked via GET and the direct query `SELECT COUNT(*) FROM Todos WHERE (IsDone = 1) <> (CompletedAt IS NOT NULL)` = 0.
   - **Likely source files:** `S/Features/Todos/TodosEndpoints.cs` (catch `DbUpdateConcurrencyException` → 404 problem in PUT, complete, and reopen; in PUT, place it before the 787 catch)
-  - **Guards:** both concurrent tests (timing-dependent; the invariants hold for any order).
-  - **Expected RED:** the three deterministic tests get 500 (`DbUpdateConcurrencyException`: zero rows affected).
+  - **Guards:** `CompleteAndReopen_Concurrent_AllOkAndStateConsistent_AC069` (timing-dependent; the invariants hold for any order). `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` is **not** a guard: it fails at RED too (without the catches it returned 500s in 5/5 runs).
+  - **Expected RED:** the three deterministic tests get 500 (`DbUpdateConcurrencyException`: zero rows affected), and so does `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070`.
   - **Done when:**
     - PUT, complete, and reopen that lose a race with a delete return 404 ProblemDetails, and the to-do stays deleted;
     - concurrent complete/reopen always return 200 and leave a valid done state.
@@ -543,7 +543,7 @@ NFR-004 has no task of its own. The reviewer inspects every task's logging (no r
 NFR-003 has no CI gate. T-01 pins the indexes, and the reviewer runs and records the manual measurement from `plan.md` (Test strategy) in `review.md` at the final review.
 
 ### Documentation task (documenter, during `/document 003`; not a red-green cycle)
-- [ ] D-01: Record the to-dos API, the date-only exception, and the FK rules in the docs
+- [x] D-01: Record the to-dos API, the date-only exception, and the FK rules in the docs
   - **ACs:** spec Constraints ("`dueDate` as a date-only value ... the plan must record it"), AC-074 (canonical messages)
   - **Depends on:** T-01..T-15
   - **Files:**
@@ -565,84 +565,84 @@ NFR-003 has no CI gate. T-01 pins the indexes, and the reviewer runs and records
   - **Done when:** conventions, ADRs, architecture, CHANGELOG, and roadmap match the code, verified against it.
 
 ## Traceability
-| AC | Task(s) | Test(s) (filled in during build) |
+| AC | Task(s) | Test(s) |
 |---|---|---|
-| AC-001 | T-02 | |
-| AC-002 | T-02 | |
-| AC-003 | T-02 | |
-| AC-004 | T-02 | |
-| AC-005 | T-02 | |
-| AC-006 | T-02 | |
-| AC-007 | T-04 | |
-| AC-008 | T-04 (guard at RED) | |
-| AC-009 | T-02 | |
-| AC-010 | T-03 (create), T-06 (update) | |
-| AC-011 | T-03 (create), T-06 (update) | |
-| AC-012 | T-03 (create), T-06 (update) | |
-| AC-013 | T-04 (create), T-06 (update) | |
-| AC-014 | T-03, T-04 (with `contactId`), T-06 | |
-| AC-015 | T-03 (guard), T-06 (guard) | |
-| AC-016 | T-04 | |
-| AC-017 | T-04 | |
-| AC-018 | T-02 | |
-| AC-019 | T-02 (guard at RED) | |
-| AC-020 | T-05 (get), T-10 (list) | |
-| AC-021 | T-05 | |
-| AC-022 | T-05 | |
-| AC-023 | T-05 | |
-| AC-024 | T-05 | |
-| AC-025 | T-05 | |
-| AC-026 | T-07 | |
-| AC-027 | T-06 | |
-| AC-028 | T-07 | |
-| AC-029 | T-07 | |
-| AC-030 | T-05 | |
-| AC-031 | T-08 | |
-| AC-032 | T-08 | |
-| AC-033 | T-08 | |
-| AC-034 | T-08 | |
-| AC-035 | T-08 | |
-| AC-036 | T-08 (guard at RED) | |
-| AC-037 | T-08 (guard) | |
-| AC-038 | T-09 (get), T-10 (list) | |
-| AC-039 | T-09 | |
-| AC-040 | T-09 | |
-| AC-041 | T-09 (guard) | |
-| AC-042 | T-10 | |
-| AC-043 | T-10 | |
-| AC-044 | T-10 (order), T-01 (sortable column types) | |
-| AC-045 | T-10 | |
-| AC-046 | T-10 | |
-| AC-047 | T-11 | |
-| AC-048 | T-11 | |
-| AC-049 | T-11 | |
-| AC-050 | T-11 | |
-| AC-051 | T-11 | |
-| AC-052 | T-11 | |
-| AC-053 | T-11 | |
-| AC-054 | T-11 | |
-| AC-055 | T-11 | |
-| AC-056 | T-10 (paging), T-11 (all parameters) | |
-| AC-057 | T-12 | |
-| AC-058 | T-12 | |
-| AC-059 | T-12 | |
-| AC-060 | T-12 (guard at RED) | |
-| AC-061 | T-12 | |
-| AC-062 | T-01 (seeded directly), T-04 (through the API) | |
-| AC-063 | T-04 (get), T-10 (list) | |
-| AC-064 | T-04 | |
-| AC-065 | T-01 (failed delete rolls back), T-13 (observer) | |
-| AC-066 | T-01 (store, FKs forced), T-04 (through the API) | |
-| AC-067 | T-01 (store rejects dangling link), T-13 (races) | |
-| AC-068 | T-11 (filter), T-12 (nested) | |
-| AC-069 | T-01 (CHECK constraint), T-14 (concurrent complete/reopen) | |
-| AC-070 | T-14 | |
-| AC-071 | T-09 | |
-| AC-072 | T-02, T-03, T-07, T-12, T-15 (+ every error test via `ProblemAssert.IsProblemAsync`) | |
-| AC-073 | T-02 (create, get), T-04 (create, non-FK constraint), T-07 (update), T-08 (complete/reopen), T-09 (delete), T-10 (list), T-12 (nested) | |
-| AC-074 | T-03, T-04, T-06, T-10, T-11, T-12, D-01 (ADR-0006 amendment) | |
-| NFR-001 | T-15 | |
-| NFR-002 | T-02 | |
-| NFR-003 | T-01 (indexes), reviewer measurement at final review | |
-| NFR-004 | all tasks (reviewer), T-02 (guard) | |
-| NFR-005 | T-06 | |
+| AC-001 | T-02 | `CreateTodoTests.CreateTodo_ThenGet_ReturnsSameValuesOnNewConnections_AC001`<br>`CreateTodoTests.CreateTodo_WithTitleNotesAndDueDate_Returns201WithLocationAndBody_AC001` |
+| AC-002 | T-02 | `CreateTodoTests.CreateTodo_WithOnlyTitle_ReturnsNullsAndIsDoneFalse_AC002` |
+| AC-003 | T-02 | `CreateTodoTests.CreateTodo_IgnoresBodyIdTimestampsAndDoneState_AC003` |
+| AC-004 | T-02 | `CreateTodoTests.CreateTodo_WithSurroundingWhitespace_StoresTrimmed_AC004`<br>`TodoInputTests.Parse_TrimsTitleAndNotes_BlankNotesBecomeNull_AC004` |
+| AC-005 | T-02 | `CreateTodoTests.CreateTodo_WithDueDateTodayOrYesterday_ReturnsSameString_AC005`<br>`CreateTodoTests.CreateTodo_WithValidDueDate_ReturnsSameString_AC005`<br>`TodoInputTests.Parse_ValidDueDate_ReturnsDateOnly_AC005` |
+| AC-006 | T-02 | `CreateTodoTests.CreateTodo_DueDateOmittedNullOrBlank_IsNull_AC006`<br>`TodoInputTests.Parse_BlankDueDate_ReturnsNull_AC006` |
+| AC-007 | T-04 | `CreateTodoContactLinkTests.CreateTodo_ContactIdInOtherGuidFormats_LinksAndReturnsCanonical_AC007`<br>`CreateTodoContactLinkTests.CreateTodo_WithExistingContactId_LinksAndReturnsIt_AC007` |
+| AC-008 | T-04 (guard at RED) | `CreateTodoContactLinkTests.CreateTodo_ContactIdOmittedNullOrBlank_IsUnlinked_AC008`<br>`TodoInputTests.Parse_ContactId_ParsesGuidOrBlankToNull_AC008` |
+| AC-009 | T-02 | `CreateTodoTests.CreateTodo_FieldsAtMax_Returns201_AC009` |
+| AC-010 | T-03 (create), T-06 (update) | `CreateTodoValidationTests.CreateTodo_WithoutTitle_Returns400Required_AC010`<br>`TodoInputTests.Parse_MissingTitle_ReturnsRequired_AC010`<br>`UpdateTodoValidationTests.UpdateTodo_WithoutTitle_Returns400Required_AC010` |
+| AC-011 | T-03 (create), T-06 (update) | `CreateTodoValidationTests.CreateTodo_FieldOverMax_Returns400_AC011`<br>`CreateTodoValidationTests.CreateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011`<br>`TodoInputTests.Parse_AtMax_AfterTrimming_IsAccepted_AC011`<br>`TodoInputTests.Parse_OverMax_ReturnsMaxMessage_AC011`<br>`UpdateTodoValidationTests.UpdateTodo_FieldOverMax_Returns400_AC011`<br>`UpdateTodoValidationTests.UpdateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011` |
+| AC-012 | T-03 (create), T-06 (update) | `CreateTodoValidationTests.CreateTodo_InvalidDueDate_Returns400WithDueDateError_AC012`<br>`TodoInputTests.Parse_InvalidDueDate_ReturnsDateMessage_AC012`<br>`UpdateTodoValidationTests.UpdateTodo_InvalidDueDate_Returns400_AC012` |
+| AC-013 | T-04 (create), T-06 (update) | `CreateTodoContactLinkTests.CreateTodo_MalformedContactId_Returns400ValidGuid_AC013`<br>`TodoInputTests.Parse_MalformedContactId_ReturnsGuidMessage_AC013`<br>`UpdateTodoValidationTests.UpdateTodo_MalformedContactId_Returns400_AC013` |
+| AC-014 | T-03, T-04 (with `contactId`), T-06 | `CreateTodoContactLinkTests.CreateTodo_ContactIdPlusOneOtherInvalidField_ReportsBoth_AC014`<br>`CreateTodoContactLinkTests.CreateTodo_InvalidFieldsIncludingContactId_ReportsAll_AC014`<br>`CreateTodoValidationTests.CreateTodo_MultipleInvalidFields_ReportsAllCamelCaseKeys_AC014`<br>`TodoInputTests.Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014`<br>`TodoInputTests.Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014`<br>`TodoInputTests.Parse_MultipleErrors_ReturnsAllKeys_AC014`<br>`UpdateTodoValidationTests.UpdateTodo_MultipleInvalidFields_ReportsAll_AC014` |
+| AC-015 | T-03 (guard), T-06 (guard) | `CreateTodoValidationTests.CreateTodo_MalformedBody_Returns400Problem_AC015`<br>`UpdateTodoValidationTests.UpdateTodo_MalformedBody_Returns400Problem_AC015` |
+| AC-016 | T-04 | `CreateTodoContactLinkTests.CreateTodo_UnknownContactId_Returns400MustReferToExistingContact_AC016` |
+| AC-017 | T-04 | `CreateTodoContactLinkTests.CreateTodo_FieldErrorAndUnknownContact_ReportsOnlyFieldErrors_AC017` |
+| AC-018 | T-02 | `GetTodoByIdTests.GetTodo_Existing_Returns200WithShape_AC018` |
+| AC-019 | T-02 (guard at RED) | `GetTodoByIdTests.GetTodo_NonGuidId_Returns404Problem_AC019`<br>`GetTodoByIdTests.GetTodo_UnknownGuid_Returns404Problem_AC019` |
+| AC-020 | T-05 (get), T-10 (list) | `ListTodosTests.ListTodos_ShowsUpdatedValues_AC020`<br>`UpdateTodoTests.UpdateTodo_ThenGet_ReturnsPersistedValuesOnNewConnections_AC020`<br>`UpdateTodoTests.UpdateTodo_WithValidBody_Returns200WithUpdatedTodo_AC020` |
+| AC-021 | T-05 | `UpdateTodoTests.UpdateTodo_OptionalFieldOmittedNullOrBlank_StoredAsNull_AC021` |
+| AC-022 | T-05 | `UpdateTodoTests.UpdateTodo_IgnoresBodyIdTimestampsAndDoneState_AC022` |
+| AC-023 | T-05 | `UpdateTodoTests.UpdateTodo_SetsUpdatedAtFromClock_EvenWhenUnchanged_AC023` |
+| AC-024 | T-05 | `UpdateTodoTests.UpdateTodo_LinksToContact_FromUnlinkedOrOtherContact_AC024` |
+| AC-025 | T-05 | `UpdateTodoTests.UpdateTodo_AtMaxWithWhitespace_StoresTrimmed_AC025` |
+| AC-026 | T-07 | `UpdateTodoTests.UpdateTodo_NonGuidId_Returns404Problem_AC026`<br>`UpdateTodoTests.UpdateTodo_UnknownGuid_Returns404AndCreatesNothing_AC026` |
+| AC-027 | T-06 | `UpdateTodoValidationTests.UpdateTodo_InvalidBodyToUnknownId_Returns400_AC027` |
+| AC-028 | T-07 | `UpdateTodoTests.UpdateTodo_UnknownContactToUnknownTodo_Returns404_AC028` |
+| AC-029 | T-07 | `UpdateTodoTests.UpdateTodo_UnknownContactId_Returns400AndLeavesTodoUnchanged_AC029` |
+| AC-030 | T-05 | `UpdateTodoTests.UpdateTodo_LeavesOtherTodosAndContactsUnchanged_AC030` |
+| AC-031 | T-08 | `CompleteReopenTodoTests.CompleteTodo_Open_Returns200DoneWithCompletedAtNow_AC031`<br>`TodoTests.Complete_Open_SetsDoneAndTimestamps_ReturnsTrue_AC031` |
+| AC-032 | T-08 | `CompleteReopenTodoTests.CompleteTodo_AlreadyDone_Returns200Unchanged_AC032`<br>`TodoTests.Complete_AlreadyDone_ChangesNothing_ReturnsFalse_AC032` |
+| AC-033 | T-08 | `CompleteReopenTodoTests.ReopenTodo_Done_Returns200OpenWithUpdatedAtNow_AC033`<br>`TodoTests.Reopen_Done_ClearsCompletedAtAndSetsUpdatedAt_ReturnsTrue_AC033` |
+| AC-034 | T-08 | `CompleteReopenTodoTests.ReopenTodo_AlreadyOpen_Returns200Unchanged_AC034`<br>`TodoTests.Reopen_AlreadyOpen_ChangesNothing_ReturnsFalse_AC034` |
+| AC-035 | T-08 | `CompleteReopenTodoTests.CompleteAndReopen_ChangeOnlyDoneStateAndIgnoreBody_AC035` |
+| AC-036 | T-08 (guard at RED) | `CompleteReopenTodoTests.CompleteOrReopen_UnknownOrNonGuidId_Returns404_AC036` |
+| AC-037 | T-08 (guard) | `CompleteReopenTodoTests.UpdateTodo_WhenDone_KeepsDoneAndCompletedAt_AC037` |
+| AC-038 | T-09 (get), T-10 (list) | `DeleteTodoTests.DeleteTodo_Existing_Returns204WithEmptyBody_AC038`<br>`DeleteTodoTests.DeleteTodo_ThenGet_Returns404OnNewConnections_AC038`<br>`ListTodosTests.ListTodos_ExcludesDeletedTodo_AC038` |
+| AC-039 | T-09 | `DeleteTodoTests.DeleteTodo_NonGuidId_Returns404AndDeletesNothing_AC039`<br>`DeleteTodoTests.DeleteTodo_UnknownOrAlreadyDeleted_Returns404Problem_AC039` |
+| AC-040 | T-09 | `DeleteTodoTests.DeleteTodo_LeavesContactAndOtherTodosUnchanged_AC040` |
+| AC-041 | T-09 (guard) | `DeleteTodoTests.UpdateCompleteReopen_AfterDelete_Return404AndDoNotRecreate_AC041` |
+| AC-042 | T-10 | `ListTodosTests.ListTodos_NoParameters_ReturnsDefaultEnvelope_AC042`<br>`TodoListQueryTests.Parse_Defaults_Page1PageSize20NoFilters_AC042` |
+| AC-043 | T-10 | `ListTodosTests.ListTodos_Empty_ReturnsEmptyItemsAndZeroTotal_AC043` |
+| AC-044 | T-10 (order), T-01 (sortable column types) | `ListTodosTests.ListTodos_OrdersByDueDateNullsLastThenCreatedAtThenId_AC044`<br>`ListTodosTests.ListTodos_SameDueDate_OrdersByCreatedAtNotId_AC044`<br>`TodoStoreTests.Store_TodosColumns_MatchPlannedTypes_AC044` |
+| AC-045 | T-10 | `ListTodosPagingTests.ListTodos_AllPages_ReturnEveryTodoExactlyOnceWithTies_AC045`<br>`ListTodosPagingTests.ListTodos_PageBeyondLast_ReturnsEmptyItems_AC045`<br>`ListTodosPagingTests.ListTodos_PageSize100_IsAccepted_AC045`<br>`ListTodosPagingTests.ListTodos_PageSlices_EchoPagingAndTotal_AC045` |
+| AC-046 | T-10 | `ListTodosPagingTests.ListTodos_InvalidPageOrPageSize_Returns400_AC046`<br>`TodoListQueryTests.Parse_InvalidPagingValues_ReturnSameMessagesAsContacts_AC046` |
+| AC-047 | T-11 | `ListTodosFilterTests.ListTodos_StatusOpen_ReturnsOnlyOpenIncludingOverdue_AC047` |
+| AC-048 | T-11 | `ListTodosFilterTests.ListTodos_StatusDone_ReturnsOnlyDone_AC048` |
+| AC-049 | T-11 | `ListTodosFilterTests.ListTodos_StatusOverdue_ReturnsOnlyOpenPastDue_AC049` |
+| AC-050 | T-11 | `OverdueClockTests.ListTodos_Overdue_IncludesTodoDueYesterdayAfterUtcMidnight_AC050` |
+| AC-051 | T-11 | `ListTodosFilterTests.ListTodos_StatusBlankOrDifferentCase_AC051`<br>`TodoListQueryTests.Parse_Status_TrimmedCaseInsensitiveBlankMeansNone_AC051` |
+| AC-052 | T-11 | `ListTodosFilterTests.ListTodos_StatusUnknown_Returns400_AC052`<br>`TodoListQueryTests.Parse_UnknownStatus_ReturnsOneOfMessage_AC052` |
+| AC-053 | T-11 | `ListTodosFilterTests.ListTodos_ContactIdFilter_ReturnsOnlyThatContactsTodos_AC053`<br>`TodoListQueryTests.Parse_ContactId_GuidOrBlank_AC053` |
+| AC-054 | T-11 | `ListTodosFilterTests.ListTodos_MalformedContactId_Returns400_AC054`<br>`TodoListQueryTests.Parse_MalformedContactId_ReturnsGuidMessage_AC054` |
+| AC-055 | T-11 | `ListTodosFilterTests.ListTodos_CombinedFilters_MatchAllOrderedAndPaged_AC055` |
+| AC-056 | T-10 (paging), T-11 (all parameters) | `ListTodosFilterTests.ListTodos_AllQueryParametersInvalid_ReportsAll_AC056`<br>`ListTodosPagingTests.ListTodos_InvalidPageAndPageSize_ReportsBoth_AC056`<br>`TodoListQueryTests.Parse_AllInvalid_ReportsEveryParameter_AC056` |
+| AC-057 | T-12 | `ListContactTodosTests.ListContactTodos_ContactIdQueryValue_IsIgnored_AC057`<br>`ListContactTodosTests.ListContactTodos_ExistingContact_ReturnsOnlyItsTodosOrdered_AC057` |
+| AC-058 | T-12 | `ListContactTodosTests.ListContactTodos_InvalidQuery_Returns400SameAsGlobalList_AC058`<br>`ListContactTodosTests.ListContactTodos_PagingAndStatus_AppliedLikeGlobalList_AC058` |
+| AC-059 | T-12 | `ListContactTodosTests.ListContactTodos_NoTodos_ReturnsEmptyItemsAndZeroTotal_AC059` |
+| AC-060 | T-12 (guard at RED) | `ListContactTodosTests.ListContactTodos_UnknownOrNonGuidContact_Returns404Problem_AC060`<br>`ListContactTodosTests.ListContactTodos_UnknownRandomGuid_Returns404Problem_AC060` |
+| AC-061 | T-12 | `ListContactTodosTests.ListContactTodos_InvalidQueryForUnknownContact_Returns400_AC061` |
+| AC-062 | T-01 (seeded directly), T-04 (through the API) | `TodoStoreTests.DeleteContact_WithLinkedTodos_Returns204AndUnlinks_AC062`<br>`ContactDeleteUnlinksTodosTests.DeleteContact_WithLinkedTodos_Returns204_AC062` |
+| AC-063 | T-04 (get), T-10 (list) | `ContactDeleteUnlinksTodosTests.DeleteContact_LinkedTodosRemainWithNullContactAndOtherFieldsUnchanged_AC063`<br>`ListTodosTests.ListTodos_AfterContactDelete_ShowsTodosUnlinkedAndOtherwiseUnchanged_AC063` |
+| AC-064 | T-04 | `ContactDeleteUnlinksTodosTests.DeleteContact_LeavesOtherContactsTodosAndUnlinkedTodosUnchanged_AC064` |
+| AC-065 | T-01 (failed delete rolls back), T-13 (observer) | `ContactDeleteAtomicityTests.DeleteContact_FailsAfterUnlink_RollsBackRemovalAndUnlink_AC065`<br>`ContactDeleteAtomicityTests.DeleteContact_FailsDuringUnlink_RollsBackRemoval_AC065`<br>`TodoContactLinkRaceTests.DeleteContacts_ConcurrentObserver_NeverSeesDanglingLink_AC065` |
+| AC-066 | T-01 (store, FKs forced), T-04 (through the API) | `TodoStoreTests.Api_ForeignKeysDisabledInConnectionString_StillEnforced_AC066`<br>`ContactDeleteUnlinksTodosTests.DeleteContactDirectlyInStore_ApiReturnsTodosUnlinked_AC066`<br>`TodoStoreTests.Store_DeletingContactDirectly_UnlinksTodosAndKeepsOtherColumns_AC066`<br>`TodoStoreTests.Store_TestConnections_HaveForeignKeysOn_AC066`<br>`TodoStoreTests.Store_TodosContactId_IsForeignKeyToContactsWithSetNull_AC066` |
+| AC-067 | T-01 (store rejects dangling link), T-13 (races) | `TodoContactLinkRaceTests.CreateTodo_ContactDeletedBeforeSave_Returns400AndCreatesNothing_AC067`<br>`TodoContactLinkRaceTests.CreateTodo_WithContact_SendsNoContactLookup_AC067`<br>`TodoContactLinkRaceTests.CreateUpdateAndContactDelete_Concurrent_NoDanglingLinks_AC067`<br>`TodoStoreTests.Store_LinkToMissingContact_IsRejectedByStore_AC067`<br>`TodoContactLinkRaceTests.UpdateTodo_KeptContactDeletedBeforeSave_Returns400AndTodoIsUnlinked_AC067`<br>`TodoContactLinkRaceTests.UpdateTodo_NewContactDeletedBeforeSave_Returns400AndLeavesTodoUnchanged_AC067`<br>`TodoContactLinkRaceTests.UpdateTodo_WithContact_SendsNoContactLookup_AC067` |
+| AC-068 | T-11 (filter), T-12 (nested) | `ListContactTodosTests.ListContactTodos_DeletedContact_Returns404_AC068`<br>`ListTodosFilterTests.ListTodos_ContactIdOfDeletedContact_ExcludesFormerTodos_AC068` |
+| AC-069 | T-01 (CHECK constraint), T-14 (concurrent complete/reopen) | `TodoRaceTests.CompleteAndReopen_Concurrent_AllOkAndStateConsistent_AC069`<br>`TodoStoreTests.Store_InconsistentDoneState_IsRejectedByStore_AC069` |
+| AC-070 | T-14 | `TodoRaceTests.CompleteTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070`<br>`TodoRaceTests.ReopenTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070`<br>`TodoRaceTests.UpdateTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070`<br>`TodoRaceTests.WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` |
+| AC-071 | T-09 | `DeleteTodoTests.DeleteTodo_ConcurrentSameId_ExactlyOne204Rest404_AC071`<br>`TodoRaceTests.DeleteTodo_NeverLoadsThenRemoves_AC071` |
+| AC-072 | T-02, T-03, T-07, T-12, T-15 (+ every error test via `ProblemAssert.IsProblemAsync`) | `CreateTodoValidationTests.CreateTodo_Returns400AsProblemJson_AC072`; plus every to-do error test via `ProblemAssert.IsProblemAsync` |
+| AC-073 | T-02 (create, get), T-04 (create, non-FK constraint), T-07 (update), T-08 (complete/reopen), T-09 (delete), T-10 (list), T-12 (nested) | `TodoErrorHandlingTests.CompleteOrReopenTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.CompleteOrReopenTodo_WhenUpdateRejected_Returns500AndLeavesTodoUnchanged_AC073`<br>`TodoErrorHandlingTests.CreateTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.CreateTodo_WhenNonForeignKeyConstraintFails_Returns500NotContactError_AC073`<br>`TodoErrorHandlingTests.DeleteTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.DeleteTodo_WhenDatabaseRejects_Returns500AndTodoStillExists_AC073`<br>`TodoErrorHandlingTests.GetTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.ListContactTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.ListTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.UpdateTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`<br>`TodoErrorHandlingTests.UpdateTodo_WhenNonForeignKeyConstraintFails_Returns500AndLeavesTodoUnchanged_AC073` |
+| AC-074 | T-03, T-04, T-06, T-10, T-11, T-12, D-01 (ADR-0006 amendment) | `CreateTodoContactLinkTests.CreateTodo_ContactIdMessages_FollowStyle_AC074`<br>`CreateTodoValidationTests.CreateTodo_ValidationMessages_FollowStyle_AC074`<br>`ListContactTodosTests.ListContactTodos_ValidationMessages_FollowStyle_AC074`<br>`ListTodosFilterTests.ListTodos_FilterMessages_FollowStyle_AC074`<br>`ListTodosPagingTests.ListTodos_ValidationMessages_FollowStyle_AC074`<br>`UpdateTodoValidationTests.UpdateTodo_ValidationMessages_FollowStyle_AC074` |
+| NFR-001 | T-15 | `OpenApiTests.OpenApi_TodoEndpoints_DocumentStatusCodes_NFR001`<br>`OpenApiTests.OpenApi_TodoEndpoints_ErrorResponsesAreProblemJson_NFR001`<br>`OpenApiTests.OpenApi_TodoEndpoints_HaveOperationIdsAndSummaries_NFR001` |
+| NFR-002 | T-02 | `CreateTodoTests.CreateTodo_Json_IsCamelCaseWithNullsDateOnlyAndUtcOffsets_NFR002`<br>`CompleteReopenTodoTests.CompleteTodo_Json_CompletedAtHasUtcOffsetAndIsDoneIsBoolean_NFR002` |
+| NFR-003 | T-01 (indexes), reviewer measurement at final review | `TodoStoreTests.Store_TodosIndexes_SupportUnlinkAndFilters_NFR003`; plus the manual measurement in `review.md` (FINAL section 3) |
+| NFR-004 | all tasks (reviewer), T-02 (guard) | `CreateTodoTests.CreateTodo_TitleAndNotesNotLoggedAtInformationOrAbove_NFR004`; plus reviewer inspection in `review.md` (FINAL section 4) |
+| NFR-005 | T-06 | `TodoInputTests.Parse_UpdateAndCreateRequests_ProduceIdenticalErrors_NFR005`<br>`UpdateTodoValidationTests.UpdateTodo_SameInvalidPayload_SameErrorsAsCreate_NFR005` |
