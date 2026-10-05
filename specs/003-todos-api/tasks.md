@@ -39,7 +39,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
 ---
 
-- [ ] T-01: To-do table with a contact link enforced by the database
+- [x] T-01: To-do table with a contact link enforced by the database. Done: CreateTodos migration, FK SetNull, CHECK, 2 indexes, ForeignKeys forced; 12 tests; review APPROVE (1 nit: redundant index name, kept)
   - **ACs:** AC-062, AC-065 (failed delete rolls back), AC-066 (store level), AC-067 (store level), AC-069 (store level), NFR-003 (indexes exist), AC-044 (sortable column types)
   - **Depends on:** none
   - **Tests:**
@@ -84,7 +84,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-02: Create a to-do and get it by id
+- [~] T-02: Create a to-do and get it by id
   - **ACs:** AC-001, AC-002, AC-003, AC-004, AC-005, AC-006, AC-009, AC-018, AC-019, NFR-002, NFR-004 (guard), AC-073 (create, get), AC-072 (404)
   - **Depends on:** T-01
   - **Tests:**
