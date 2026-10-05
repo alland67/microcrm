@@ -17,19 +17,23 @@ public static class TodosEndpoints
         return app;
     }
 
-    private static async Task<Created<TodoResponse>> CreateTodo(
+    private static async Task<Results<Created<TodoResponse>, ValidationProblem>> CreateTodo(
         CreateTodoRequest request,
         AppDbContext db,
         TimeProvider time,
         CancellationToken ct)
     {
-        var (input, _) = TodoInput.Parse(request);
+        var (input, errors) = TodoInput.Parse(request);
+        if (input is null)
+        {
+            return TypedResults.ValidationProblem(errors!);
+        }
 
         var now = time.GetUtcNow();
         var todo = new Todo
         {
             Id = Guid.CreateVersion7(now),
-            Title = input!.Title,
+            Title = input.Title,
             Notes = input.Notes,
             DueDate = input.DueDate,
             CreatedAt = now,

@@ -115,3 +115,63 @@
 - `ApiFactory.ResetAsync` clears `Todos` before `Contacts`, as the plan specifies. No existing class creates to-dos, so the existing contact tests are unaffected (322/322).
 - The 404 is `TypedResults.Problem(statusCode: 404)`, as the plan prescribes (runtime-equivalent to `NotFound()`, as accepted at spec 002 T-04).
 - `.http` additions match the plan (dev convenience, no tests).
+
+## T-03: 2026-10-05: CHANGES_REQUESTED → APPROVE (fix cycle 1)
+
+**Checks:** tests pass, backend 361/361 · lint pass (`dotnet format --verify-no-changes` exit 0; no web changes) · typecheck n/a (no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-010 (create) | `CreateTodo_WithoutTitle_Returns400Required_AC010` (missing, `null`, `""`, `"  "`), `Parse_MissingTitle_ReturnsRequired_AC010` (3 rows) | yes: exact message and row count unchanged. Killed by M5 (no Required) and M14 (`title is null` only). |
+| AC-011 (create) | `CreateTodo_FieldOverMax_Returns400_AC011`, `CreateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011`, `Parse_OverMax_ReturnsMaxMessage_AC011`, `Parse_AtMax_AfterTrimming_IsAccepted_AC011` | yes: killed by M6 (no title max), M7 (no notes max), M10 (`>=`), and M11 (max on the untrimmed title) |
+| AC-012 (create) | `CreateTodo_InvalidDueDate_Returns400WithDueDateError_AC012` (9 rows), `Parse_InvalidDueDate_ReturnsDateMessage_AC012` (9 rows) | yes: killed by M4 (lenient `TryParse`) and M8 (bad date silently null). The 0001/9999 accept boundaries are pinned by the T-02 AC-005 rows. |
+| AC-014 (create, no contactId) | `CreateTodo_MultipleInvalidFields_ReportsAllCamelCaseKeys_AC014`, `Parse_MultipleErrors_ReturnsAllKeys_AC014` | yes: killed by an early return after title (M9) and an early return after notes (M9b) |
+| AC-015 (create) | guard `CreateTodo_MalformedBody_Returns400Problem_AC015` (6 rows) | yes: 400 problem+json, no `errors`, row count unchanged. It passed at RED as a guard, as tasks.md expects. |
+| AC-072 (400) | `CreateTodo_Returns400AsProblemJson_AC072` plus every 400 above via `ProblemAssert.IsProblemAsync` | yes: killed by M12 (no validation branch, which gives 500) |
+| AC-074 (create) | `CreateTodo_ValidationMessages_FollowStyle_AC074` | yes: style helper plus exact messages for all four rules |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| # | Mutant | Tests failed |
+|---|---|---|
+| M1 | drop `value.Length == DateFormat.Length` | **0** |
+| M2 | drop the ASCII `[0-9-]` check | **0** |
+| M3 | both dropped (the plan/ADR-0007 form: `TryParseExact` alone) | **0** |
+| M4 | lenient `DateOnly.TryParse` | 11 |
+| M5 | no `Required.` on title | 11 |
+| M6 | no title max | 3 |
+| M7 | no notes max | 6 |
+| M8 | invalid date silently null | 21 |
+| M9 / M9b | early return after title / after notes | 5 / 3 |
+| M10 | `>=` max | 3 |
+| M11 | title max checked before trim | 2 |
+| M12 | handler validation branch removed | 18 |
+| M13 | due date not trimmed | 2 |
+| M14 | whitespace-only title accepted | 8 |
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Blocking | implementer | src/MicroCrm.Api/Features/Todos/TodoInput.cs:55-56 | `TryParseDate` adds a length-10 pre-check and an ASCII `[0-9-]` pre-check in front of `DateOnly.TryParseExact`. No test demands either (M1, M2, and M3 each fail 0 tests), and the code differs from the rule that plan.md ("`TodoInput.Parse` rules": `TryParseExact(...)`, "strictness verified") and ADR-0007 prescribe. ADR-0007's claim is confirmed: on .NET 10, `TryParseExact` alone rejects `226-10-05`, `02026-10-05`, full-width and Arabic-Indic digits, Unicode hyphens, zero-width/NUL/ideographic-space suffixes, and `0000-01-01`, and it accepts `0001-01-01` and `9999-12-31`. A brute force over every single BMP character inserted into or replacing a character of `2026-10-05` found **0** inputs that `TryParseExact` accepts and the pre-check rejects. So this is untested defensive code with no observable effect, which constitution §2 rules out (the same category as the spec 001 T-04 no-op config). | Reduce `TryParseDate` to the plan form, or inline it: `DateOnly.TryParseExact(rawDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)`. No test changes. The suite stays 361/361 (M3 evidence). |
+
+**Notes:**
+- **Contacts refactor:** `TrimToNull` moved verbatim to `Common/TextNormalization.cs` (same body), and `ContactInput` now uses `using static`. That's a pure move with no behavior change: all contact tests pass and no contact test file changed. It closes the T-02 Nit. Its location in `Common/` matches conventions.
+- **Minimality is clean:**
+  - `contactId` is not parsed or assigned; `TodoInput` still has three members.
+  - There's no 787/`SqliteException`/`DbUpdateException` catch.
+  - There's no `.WithName`/`.WithSummary`/`Produces*`/`.WithTags`.
+  - There's no contact pre-check and no new migration.
+  - `TitleMax`/`NotesMax` arrive now, as T-02's review anticipated.
+- The handler shape `if (input is null) return TypedResults.ValidationProblem(errors!);` is the accepted pattern (spec 001 T-06). The return type `Results<Created<TodoResponse>, ValidationProblem>` is demanded for the 400 path.
+- Title uses `rawTitle?.Trim()` + `IsNullOrEmpty` rather than `TrimToNull`. That's equivalent and mirrors `ContactInput`'s firstName. Not a finding.
+- Test isolation: `CreateTodoValidationTests` has its own `IClassFixture<ApiFactory>`. Tests within a class run sequentially, so the before/after row count is reliable.
+- Extra tests beyond the tasks.md list (`Parse_AtMax_AfterTrimming_IsAccepted_AC011`, `CreateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011`, `CreateTodo_Returns400AsProblemJson_AC072`) need to be added to the traceability table at `/document`.
+
+### T-03 re-review (fix cycle 1): 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 361/361 · lint pass (`dotnet format --verify-no-changes` exit 0) · typecheck n/a (no web changes)
+
+- **Finding 1 is closed.** `TryParseDate` (`TodoInput.cs:53-54`) is now only `DateOnly.TryParseExact(value, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date)`. That's the plan.md/ADR-0007 form, and its strictness was verified by the probe above.
+- **AC-012 strictness is still pinned.** M4 (lenient `TryParse`) was run without the pre-checks and failed 11 tests. The other mutants didn't touch the date path, so their results stand.
+- **No tests were changed.** `TodoInputTests.cs` has the same diff (+76 lines), `CreateTodoValidationTests.cs` is untouched, and the test count is unchanged at 361.
+- No new findings.

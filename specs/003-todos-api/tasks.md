@@ -132,7 +132,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-03: Create rejects invalid title, notes, due date, and unreadable bodies
+- [x] T-03: Create rejects invalid title, notes, due date, and unreadable bodies. Done: TodoInput validation + ValidationProblem, strict TryParseExact dueDate, TrimToNull moved to Common/TextNormalization; review APPROVE after 1 fix cycle (redundant date pre-checks removed)
   - **ACs:** AC-010, AC-011, AC-012, AC-014, AC-015 (create), AC-074 (create), AC-072 (400)
   - **Depends on:** T-02
   - **Tests:**
