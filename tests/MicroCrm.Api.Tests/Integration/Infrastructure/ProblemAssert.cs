@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace MicroCrm.Api.Tests.Integration.Infrastructure;
@@ -44,6 +45,61 @@ public static class ProblemAssert
         }
 
         return doc;
+    }
+
+    /// <summary>
+    /// AC-039 / ADR-0006: asserts every message in "errors" starts with an uppercase letter, ends with a
+    /// period, does not contain its key quoted ('key' or "key"), and does not start with the key or its
+    /// humanized form (firstName / First name), ignoring case. A plain "contains the key" check is not used,
+    /// because "Must be a valid email address." under "email" is compliant.
+    /// </summary>
+    public static void AssertValidationMessageStyle(JsonDocument problem)
+    {
+        Assert.True(problem.RootElement.TryGetProperty("errors", out var errors), "ProblemDetails is missing 'errors'");
+        var checkedAny = false;
+        foreach (var property in errors.EnumerateObject())
+        {
+            var key = property.Name;
+            var humanized = Humanize(key);
+            foreach (var element in property.Value.EnumerateArray())
+            {
+                checkedAny = true;
+                var message = element.GetString();
+                Assert.False(string.IsNullOrEmpty(message), $"'{key}' has an empty message");
+                Assert.True(char.IsUpper(message[0]), $"'{key}' message must start with an uppercase letter: {message}");
+                Assert.EndsWith(".", message, StringComparison.Ordinal);
+                Assert.DoesNotContain($"'{key}'", message, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain($"\"{key}\"", message, StringComparison.OrdinalIgnoreCase);
+                Assert.False(message.StartsWith(key, StringComparison.OrdinalIgnoreCase), $"'{key}' message must not start with the key: {message}");
+                Assert.False(message.StartsWith(humanized, StringComparison.OrdinalIgnoreCase), $"'{key}' message must not start with '{humanized}': {message}");
+            }
+        }
+
+        Assert.True(checkedAny, "errors contained no messages to check");
+    }
+
+    // "firstName" -> "First name"
+    private static string Humanize(string key)
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < key.Length; i++)
+        {
+            var c = key[i];
+            if (i == 0)
+            {
+                sb.Append(char.ToUpperInvariant(c));
+            }
+            else if (char.IsUpper(c))
+            {
+                sb.Append(' ').Append(char.ToLowerInvariant(c));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static void AssertNonEmptyString(JsonElement root, string name)

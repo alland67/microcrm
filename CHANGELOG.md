@@ -5,6 +5,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 ### Added
+- Spec 002 (Contacts API: update and delete):
+  - `PUT /api/contacts/{id}` replaces a contact (full replace) and returns 200 with the contact; 400 for invalid or unreadable bodies, 404 for an unknown or non-GUID id, 409 for an email used by another contact.
+    - Same field rules as create. Optional fields that are omitted, `null` or blank become `null`. `id` and `createdAt` never change (body values are ignored); `updatedAt` is set on every successful update.
+    - Check order: body 400, validation 400, not found 404, email conflict 409. A contact never conflicts with its own email (case changes are fine).
+    - Concurrent email races return 409, and an update racing a delete returns 404; neither returns 500, and PUT never recreates a deleted contact.
+  - `DELETE /api/contacts/{id}` permanently deletes a contact: 204 with no body, or 404 for an unknown, already deleted or non-GUID id. The email can be reused afterwards.
+  - OpenAPI operations `UpdateContact` and `DeleteContact`, with `application/problem+json` error responses.
+  - ADR-0006 (validation message style). Decision recorded for spec 003: deleting a contact keeps its to-dos and sets their contact link to `null` (see `specs/002-contacts-api-update-delete/spec.md`).
 - Spec 001 (Contacts API: create, get by id, list):
   - `POST /api/contacts` returns 201 with a `Location` header and the contact. `firstName` is required. `lastName`, `email`, `phone`, `company` and `notes` are optional.
     - Text is trimmed, and blank optional fields are stored as `null`.
@@ -13,7 +21,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
     - Validation errors return 400 with an `errors` dictionary keyed by camelCase field, listing every invalid field. An unreadable body returns a plain 400 ProblemDetails without `errors`.
   - `GET /api/contacts/{id}` returns 200, or 404 for an unknown or non-GUID id.
   - `GET /api/contacts?page=&pageSize=&search=` returns `{ items, page, pageSize, totalCount }`.
-    - Defaults are page 1 and pageSize 20; pageSize is at most 100. Invalid or non-integer values return 400 naming the parameter.
+    - Defaults are page 1 and pageSize 20; pageSize is at most 100. Invalid or non-integer values return 400 with an `errors` entry keyed by the parameter name.
     - Order is last name, first name, id, ignoring ASCII case. Contacts without a last name sort last.
     - `search` is a trimmed, case-insensitive substring match on first name, last name or email (max 254 characters). `%`, `_` and `\` match literally.
   - Every 4xx/5xx response is `application/problem+json`. 500 responses never include exception details.
@@ -24,6 +32,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
     - `AddContactNameCollation`: NOCASE collation on `FirstName` and `LastName` (rebuilds the table)
   - ADR-0003 (case-insensitive text in SQLite), ADR-0004 (validation and error pipeline), ADR-0005 (integration test database).
 ### Changed
+- Validation messages follow ADR-0006 (sentence case, ends with a period, doesn't name the field; the `errors` key identifies it). Only the text changed; status codes and keys are the same.
+  - Create: `"First name is required."` is now `"Required."`.
+  - List: `"'page' must be an integer between 1 and 2147483647."` is now `"Must be an integer between 1 and 2147483647."`; `"'pageSize' must be an integer between 1 and 100."` is now `"Must be an integer between 1 and 100."`; `"'search' must be at most 254 characters."` is now `"Must be 254 characters or fewer."`.
+- `docs/conventions.md` Errors row records the message style.
 - Removed the template `weatherforecast` sample endpoint.
 - `docs/conventions.md` validation and integration-test database lines now match ADR-0004 and ADR-0005.
 ### Fixed

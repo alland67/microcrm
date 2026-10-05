@@ -16,7 +16,7 @@ Read before writing or reviewing code. Changes to this file go through an ADR.
 | Delete | `DELETE /api/contacts/{id}` → **204**; **404** if missing |
 | Nested | `GET /api/contacts/{id}/todos` for a contact's to-dos |
 | JSON | camelCase; enums as strings; dates are ISO-8601 UTC (`DateTimeOffset`); omit nothing, use `null` |
-| Errors | RFC 9457 **ProblemDetails** (`application/problem+json`). 400 validation (with `errors` dictionary, field-validation errors only), 404 not found, 409 conflict. A 400 for an unreadable body (malformed JSON, empty body, wrong JSON type) is plain ProblemDetails without `errors`. Never leak exception details. |
+| Errors | RFC 9457 **ProblemDetails** (`application/problem+json`). 400 validation (with `errors` dictionary, field-validation errors only), 404 not found, 409 conflict. A 400 for an unreadable body (malformed JSON, empty body, wrong JSON type) is plain ProblemDetails without `errors`. Never leak exception details. **Message style** (ADR-0006): every message in `errors` is sentence case, starts with an uppercase letter, ends with a period, and doesn't name or quote the field or parameter (the `errors` key identifies it), e.g. `Required.`, `Must be 254 characters or fewer.`, `Must be a valid email address.`, `Must be an integer between 1 and 100.` |
 | Concurrency | Not in v1 unless a spec asks for it |
 | Docs | OpenAPI served at `/openapi/v1.json` in Development |
 

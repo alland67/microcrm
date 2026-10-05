@@ -213,4 +213,60 @@ public sealed class ContactInputTests
         Assert.Equal(["email", "firstName", "phone"], errors.Keys.Order().ToArray());
         Assert.All(errors.Values, messages => Assert.NotEmpty(messages));
     }
+
+    [Fact]
+    public void Parse_MissingFirstName_MessageIsRequired_AC039()
+    {
+        var (_, errors) = ContactInput.Parse(Valid with { FirstName = null });
+
+        Assert.NotNull(errors);
+        Assert.Equal(["Required."], errors["firstName"]);
+    }
+
+    // Guard: over-max and invalid-email messages already follow ADR-0006 (passes at RED).
+    [Fact]
+    public void Parse_ValidationMessages_FollowStyle_AC039()
+    {
+        var request = Valid with
+        {
+            LastName = new string('x', 101),
+            Email = "not-an-email",
+            Phone = new string('1', 51),
+        };
+
+        var (_, errors) = ContactInput.Parse(request);
+
+        Assert.NotNull(errors);
+        Assert.Equal(["Must be 100 characters or fewer."], errors["lastName"]);
+        Assert.Equal(["Must be a valid email address."], errors["email"]);
+        Assert.Equal(["Must be 50 characters or fewer."], errors["phone"]);
+    }
+
+    [Theory]
+    [InlineData(null, null, null, null)]
+    [InlineData("  ", "not-an-email", null, null)]
+    [InlineData("Ada", "no-at-sign", "x", "y")]
+    [InlineData("", null, "OVERMAX", null)]
+    [InlineData("OVERMAX", "OVERMAX", "OVERMAX", "OVERMAX")]
+    public void Parse_UpdateAndCreateRequests_ProduceIdenticalErrors_NFR004(
+        string? firstName, string? email, string? phone, string? company)
+    {
+        static string? Expand(string? v, int max) => v == "OVERMAX" ? new string('x', max + 1) : v;
+        var first = Expand(firstName, ContactInput.FirstNameMax);
+        var mail = Expand(email, ContactInput.EmailMax);
+        var tel = Expand(phone, ContactInput.PhoneMax);
+        var comp = Expand(company, ContactInput.CompanyMax);
+        var notes = firstName == "OVERMAX" ? new string('n', ContactInput.NotesMax + 1) : null;
+
+        var (_, createErrors) = ContactInput.Parse(new CreateContactRequest(first, null, mail, tel, comp, notes));
+        var (_, updateErrors) = ContactInput.Parse(new UpdateContactRequest(first, null, mail, tel, comp, notes));
+
+        Assert.NotNull(createErrors);
+        Assert.NotNull(updateErrors);
+        Assert.Equal(createErrors.Keys.Order(StringComparer.Ordinal), updateErrors.Keys.Order(StringComparer.Ordinal));
+        foreach (var key in createErrors.Keys)
+        {
+            Assert.Equal(createErrors[key], updateErrors[key]);
+        }
+    }
 }

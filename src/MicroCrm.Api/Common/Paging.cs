@@ -9,7 +9,7 @@ public sealed record ListQuery(int Page, int PageSize, string? Search)
     public const int DefaultPage = 1, DefaultPageSize = 20, MaxPageSize = 100, MaxSearchLength = 254;
 
     // A null value (parameter absent) uses the default; a present value must be a plain
-    // non-negative integer (no sign or whitespace) within range, otherwise a named error is reported.
+    // non-negative integer (no sign or whitespace) within range; otherwise an error is reported under that key.
     public static (ListQuery? Query, Dictionary<string, string[]>? Errors) Parse(
         string? page, string? pageSize, string? search)
     {
@@ -22,7 +22,7 @@ public sealed record ListQuery(int Page, int PageSize, string? Search)
         var term = string.IsNullOrEmpty(trimmed) ? null : trimmed;
         if (term is { Length: > MaxSearchLength })
         {
-            errors["search"] = [$"'search' must be at most {MaxSearchLength} characters."];
+            errors["search"] = [$"Must be {MaxSearchLength} characters or fewer."];
         }
 
         return errors.Count > 0
@@ -52,7 +52,7 @@ public sealed record ListQuery(int Page, int PageSize, string? Search)
             return parsed;
         }
 
-        errors[key] = [$"'{key}' must be an integer between {min} and {max}."];
+        errors[key] = [$"Must be an integer between {min} and {max}."];
         return fallback;
     }
 }
