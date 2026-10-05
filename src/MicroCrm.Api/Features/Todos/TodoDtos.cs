@@ -2,6 +2,8 @@ namespace MicroCrm.Api.Features.Todos;
 
 public sealed record CreateTodoRequest(string? Title, string? Notes, string? DueDate, string? ContactId);
 
+public sealed record UpdateTodoRequest(string? Title, string? Notes, string? DueDate, string? ContactId);
+
 public sealed record TodoResponse(
     Guid Id,
     string Title,

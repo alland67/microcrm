@@ -226,3 +226,50 @@
 - No existing test was changed or weakened. `TodoErrorHandlingTests.cs` and `TodoInputTests.cs` only add lines; the count went 361 → 399.
 - Test isolation: the trigger test has its own `IClassFixture<ApiFactory>` and drops the trigger in `finally`. The snapshot includes a linked pre-existing to-do, so "stored data unchanged" is non-trivial.
 - Extra tests beyond the tasks.md list (`CreateTodo_ContactIdInOtherGuidFormats_LinksAndReturnsCanonical_AC007`, `CreateTodo_ContactIdPlusOneOtherInvalidField_ReportsBoth_AC014`, `Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014`, `Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014`) need to be added to the traceability table at `/document`.
+
+## T-05: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 419/419 (run 3 times, stable) · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; `npm --prefix web run lint` exit 0, no web changes) · typecheck pass (`npm --prefix web run typecheck` exit 0, no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-020 (get) | `UpdateTodo_WithValidBody_Returns200WithUpdatedTodo_AC020`, `UpdateTodo_ThenGet_ReturnsPersistedValuesOnNewConnections_AC020` | yes: checks all 9 members, content type, every edited field, PUT body == GET body (raw) on a fresh client, and the raw row. Killed by `no_save` (18), `no_title`, `no_notes`, `no_due`, `no_contact`. The list half belongs to T-10. |
+| AC-021 | `UpdateTodo_OptionalFieldOmittedNullOrBlank_StoredAsNull_AC021` (12 rows: 3 fields × omitted/null/""/whitespace, starting from a linked to-do with notes and a due date) | yes: checks the response, a fresh GET, and the raw column, and the other two fields are kept. The keep-old-value mutants (`?? todo.Notes`, `?? todo.DueDate`, `?? todo.ContactId`) each fail 4. |
+| AC-022 | `UpdateTodo_IgnoresBodyIdTimestampsAndDoneState_AC022` | yes: sends a different `id` (no row is created for it), bogus `createdAt`/`updatedAt`, `isDone: true`, and `completedAt`. Killed by `created_now`, `isdone_true`, `no_updated`. |
+| AC-023 | `UpdateTodo_SetsUpdatedAtFromClock_EvenWhenUnchanged_AC023` | yes: PUTs identical values after `Time.Advance`. Killed by `updated_if_changed` (UpdatedAt set only when some property is modified). |
+| AC-024 | `UpdateTodo_LinksToContact_FromUnlinkedOrOtherContact_AC024` (2 rows) | yes: the precondition link is asserted, then the response, a fresh GET, and the raw uppercase FK are checked. Killed by `no_contact`. |
+| AC-025 | `UpdateTodo_AtMaxWithWhitespace_StoresTrimmed_AC025` | yes: title 200 and notes 4000 surrounded by tab, newline, and spaces, plus a padded dueDate. The response and a fresh GET are trimmed. Killed by a non-trimming update overload. |
+| AC-030 | `UpdateTodo_LeavesOtherTodosAndContactsUnchanged_AC030` | yes, with a Nit (finding 1): the clock is advanced 3 h, then raw JSON of 2 other to-dos and both contacts is compared. Killed by an all-rows `ExecuteUpdate` of Title and by touching the old contact. |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| Mutant | Tests failed |
+|---|---|
+| `no_save` | 18 |
+| `no_title` / `no_notes` / `no_due` / `no_contact` | 4 / 7 / 7 / 8 |
+| `no_updated` / `updated_if_changed` | 2 / 1 |
+| `notes_keep` / `due_keep` / `contact_keep` (`?? old`) | 4 / 4 / 4 |
+| `created_now` / `isdone_true` | 2 / 2 |
+| `update_all_title` (ExecuteUpdate Title on every row) | 1 |
+| `touch_old_contact` (bump the old contact's UpdatedAt) | 1 |
+| `no_trim_title_upd` (update overload returns an untrimmed title) | 4 |
+| `update_all_updatedat` (bump UpdatedAt of other to-dos linked to the target's *new* contact) | 0 (finding 1) |
+| `nf_branch` (FirstOrDefault + throw) | 0 (equivalent: still a 500 until T-07) |
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Nit | test-writer | tests/MicroCrm.Api.Tests/Integration/Todos/UpdateTodoTests.cs:283-290 | AC-030's snapshot covers a sibling of the target's *old* contact (A) and an unlinked to-do, but no to-do already linked to the *new* contact (B). A side effect on B's existing to-dos survives (`update_all_updatedat`, 0 fails). It's contrived, so this is optional. | Seed one more to-do linked to `contactB` before the PUT and add it to `todoUrls`. |
+
+**Notes:**
+- **Minimality is clean.** `UpdateTodo` returns `Task<Ok<TodoResponse>>` only. It has no validation branch (`input!`, T-06), no null→404 branch (`FirstAsync`, T-07), no 787 catch (T-07), no `IsModified` on ContactId (T-13), and no `DbUpdateConcurrencyException` catch (T-14). There's no `.WithName`/`.WithSummary`/`Produces*`/`.WithTags` (T-15) and no `Contacts` pre-check query anywhere in `Features/Todos/` (ADR-0008). `Data/` hasn't changed, so no migration was added after T-01. The validation branch the implementer first added was removed before this review, as the orchestrator reported.
+- **Shared core.** `Parse(UpdateTodoRequest)` delegates to the same private `Parse(rawTitle, rawNotes, rawDueDate, rawContactId)` core as create (plan §TodoInput, NFR-005). `UpdateTodoRequest` has exactly the 4 editable members, so `isDone`/`completedAt`/`id`/timestamps in the body can't bind (plan: "PUT never touches IsDone/CompletedAt").
+- **Later tasks can still fail first.** A scratch probe against the current handler gave:
+  - T-06 RED: invalid bodies (no title, bad date, invalid body to an unknown id) → 500 problem+json (null `input`), and they expect 400. Malformed `{` and `"contactId":7` → 400 already, which is the expected AC-015 guard.
+  - T-07 RED: an unknown GUID → 500 (`FirstAsync` throws), unknown contact + unknown to-do → 500, and an unknown contact on an existing to-do → 500 (unhandled 787). Each expects 404 or 400. Non-GUID → 404 already (guard, no route).
+  - Every interim 500 body is `type`/`title`/`status`/`traceId` only (no exception text), and the stored row stayed unchanged.
+  - T-13 RED holds: assigning an equal `ContactId` to a tracked entity doesn't mark it modified, so a keep-link PUT racing a contact delete still returns 200 with the stale id until `IsModified = true` is added.
+- **NFR-004.** The update path adds no logging.
+- **`input!` used 4 times.** A single `!` is enough (proven by building with the other three removed: 0 warnings), but T-06 replaces this with the `if (input is null)` branch. No action needed.
+- **T-04 Nit closed.** `CreateTodoContactLinkTests.cs:96,137` changes comments only, and no assertion or code line changed. The test count went 399 → 419 (+20 new, 0 removed).
+- `MicroCrm.Api.http` gained one PUT sample (a dev convenience, plan file table).

@@ -13,6 +13,7 @@ public static class TodosEndpoints
 
         group.MapPost(string.Empty, CreateTodo);
         group.MapGet("/{id:guid}", GetTodoById);
+        group.MapPut("/{id:guid}", UpdateTodo);
 
         return app;
     }
@@ -68,5 +69,27 @@ public static class TodosEndpoints
         return todo is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound)
             : TypedResults.Ok(TodoResponse.From(todo));
+    }
+
+    private static async Task<Ok<TodoResponse>> UpdateTodo(
+        Guid id,
+        UpdateTodoRequest request,
+        AppDbContext db,
+        TimeProvider time,
+        CancellationToken ct)
+    {
+        var (input, _) = TodoInput.Parse(request);
+
+        var todo = await db.Todos.FirstAsync(t => t.Id == id, ct);
+
+        todo.Title = input!.Title;
+        todo.Notes = input!.Notes;
+        todo.DueDate = input!.DueDate;
+        todo.ContactId = input!.ContactId;
+        todo.UpdatedAt = time.GetUtcNow();
+
+        await db.SaveChangesAsync(ct);
+
+        return TypedResults.Ok(TodoResponse.From(todo));
     }
 }

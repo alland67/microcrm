@@ -13,6 +13,9 @@ public sealed record TodoInput(string Title, string? Notes, DateOnly? DueDate, G
     public static (TodoInput? Input, Dictionary<string, string[]>? Errors) Parse(CreateTodoRequest request) =>
         Parse(request.Title, request.Notes, request.DueDate, request.ContactId);
 
+    public static (TodoInput? Input, Dictionary<string, string[]>? Errors) Parse(UpdateTodoRequest request) =>
+        Parse(request.Title, request.Notes, request.DueDate, request.ContactId);
+
     private static (TodoInput? Input, Dictionary<string, string[]>? Errors) Parse(
         string? rawTitle, string? rawNotes, string? rawDueDate, string? rawContactId)
     {

@@ -93,7 +93,7 @@ public sealed class CreateTodoContactLinkTests(ApiFactory factory) : IClassFixtu
         Assert.Equal(contactId.ToString(), created.RootElement.GetProperty("contactId").GetString());
     }
 
-    // Guard: blank contactId is already ignored (the field isn't read yet).
+    // Guard: a blank contactId means unlinked, and creating without a link never touches the contact table.
     [Theory]
     [MemberData(nameof(BlankContactBodies))]
     public async Task CreateTodo_ContactIdOmittedNullOrBlank_IsUnlinked_AC008(string body)
@@ -134,7 +134,7 @@ public sealed class CreateTodoContactLinkTests(ApiFactory factory) : IClassFixtu
         Assert.Equal(before, await CountAsync());
     }
 
-    // Guard: contactId isn't read yet, so only the field-rule entries are reported today.
+    // Guard: contact existence is checked only after the field rules pass, so only the field-rule entries are reported.
     [Fact]
     public async Task CreateTodo_FieldErrorAndUnknownContact_ReportsOnlyFieldErrors_AC017()
     {

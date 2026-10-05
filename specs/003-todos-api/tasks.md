@@ -209,7 +209,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-05: Update a to-do (full replace)
+- [x] T-05: Update a to-do (full replace). Done: PUT full replace via shared Parse core, updatedAt from TimeProvider; review APPROVE after 1 pre-review fix (early validation branch removed) (1 nit: AC-030 snapshot lacks a to-do already linked to the new contact, deferred to T-06)
   - **ACs:** AC-020 (get), AC-021, AC-022, AC-023, AC-024, AC-025, AC-030
   - **Depends on:** T-04
   - **Tests:**
