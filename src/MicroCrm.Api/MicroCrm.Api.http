@@ -57,3 +57,11 @@ Content-Type: application/json
   "dueDate": "2026-10-06",
   "contactId": null
 }
+
+###
+
+POST {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}/complete
+
+###
+
+POST {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}/reopen

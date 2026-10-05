@@ -19,4 +19,30 @@ public sealed class Todo
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    public bool Complete(DateTimeOffset now)
+    {
+        if (IsDone)
+        {
+            return false;
+        }
+
+        IsDone = true;
+        CompletedAt = now;
+        UpdatedAt = now;
+        return true;
+    }
+
+    public bool Reopen(DateTimeOffset now)
+    {
+        if (!IsDone)
+        {
+            return false;
+        }
+
+        IsDone = false;
+        CompletedAt = null;
+        UpdatedAt = now;
+        return true;
+    }
 }

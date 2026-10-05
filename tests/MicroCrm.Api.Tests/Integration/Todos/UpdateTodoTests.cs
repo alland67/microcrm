@@ -332,7 +332,7 @@ public sealed class UpdateTodoTests(ApiFactory factory) : IClassFixture<ApiFacto
     [Theory]
     [InlineData("not-a-guid")]
     [InlineData("123")]
-    public async Task UpdateTodo_NonGuidId_Returns404_AC026(string id)
+    public async Task UpdateTodo_NonGuidId_Returns404Problem_AC026(string id)
     {
         _ = factory.Server;
         using var client = factory.CreateClient();
@@ -340,7 +340,7 @@ public sealed class UpdateTodoTests(ApiFactory factory) : IClassFixture<ApiFacto
 
         var response = await client.PutAsync($"/api/todos/{id}", Json("""{"title":"Ghost"}"""), Ct);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        using var problem = await ProblemAssert.IsProblemAsync(response, 404);
         Assert.Equal(before, await TodoCountAsync());
     }
 

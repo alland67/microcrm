@@ -350,3 +350,43 @@
 - **No test removed or weakened.** 457 → 464 = +7 (AC-026 ×3, AC-028, AC-029, AC-073 ×2). Existing tests are untouched; only a private `TodoCountAsync` helper was added.
 - The RED claim is consistent with the code at e256540. `FirstAsync` throws on an unknown id → 500 for AC-026 GUID and AC-028. With no catch, the 787 → 500 for AC-029. Both AC-073 tests and the non-GUID theory are guards.
 - The `contact_precheck` mutant (the T-04 survivor pattern, now on update) is killed here only because of the ordering AC-028. A pre-check placed *after* the lookup would still survive until T-13's race tests, which is expected.
+
+## T-08: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 484/484 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; `npm --prefix web run lint` exit 0, no web changes) · typecheck pass (`npm --prefix web run typecheck` exit 0, no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-031 | unit `Complete_Open_SetsDoneAndTimestamps_ReturnsTrue_AC031`; `CompleteTodo_Open_Returns200DoneWithCompletedAtNow_AC031` | yes: clock advanced 1h, `completedAt == updatedAt == now`, fresh-client GET identical. Killed by `complete_no_updated`, `no_save`, `untracked_load`. |
+| AC-032 | unit `Complete_AlreadyDone_ChangesNothing_ReturnsFalse_AC032`; `CompleteTodo_AlreadyDone_Returns200Unchanged_AC032` | yes: clock advanced 2h before the repeat; response body, later GET and raw row all equal the pre-repeat state. Killed by `complete_no_guard` and `complete_noop_restamp_only_updated`. |
+| AC-033 | unit `Reopen_Done_..._AC033`; `ReopenTodo_Done_Returns200OpenWithUpdatedAtNow_AC033` | yes: persisted via fresh-client GET. Killed by `reopen_no_updated`, `no_save`. |
+| AC-034 | unit `Reopen_AlreadyOpen_..._AC034`; `ReopenTodo_AlreadyOpen_Returns200Unchanged_AC034` | yes: body and raw row unchanged after a 2h advance. Killed by `reopen_no_guard`. |
+| AC-035 | `CompleteAndReopen_ChangeOnlyDoneStateAndIgnoreBody_AC035` (complete/reopen × done-state body and malformed `{`) | yes: linked target with notes and due date, six other fields compared raw, bystander body and row unchanged. Killed by `bind_body` (adding an `UpdateTodoRequest?` parameter) and `swap_routes`. |
+| AC-036 | `CompleteOrReopen_UnknownOrNonGuidId_Returns404_AC036` (action × unknown GUID, `not-a-guid`) | yes for status and "no change". The GUID rows go through `ProblemAssert.IsProblemAsync(response, 404)` and are now genuinely handler-driven: `no_null_404` (`FirstAsync`, no null branch) fails exactly the 2 GUID rows (500). The non-GUID rows only check the status (see Should-fix). |
+| AC-037 | `UpdateTodo_WhenDone_KeepsDoneAndCompletedAt_AC037` | yes: PUT body tries `isDone:false, completedAt:null`; response and fresh GET keep done + original `completedAt`. |
+| AC-073 (complete/reopen) | `CompleteOrReopenTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (Theory: complete, reopen), `CompleteTodo_WhenUpdateRejected_Returns500AndLeavesTodoOpen_AC073` (BEFORE UPDATE trigger, own fixture) | yes. The trigger test drops the trigger in `finally`, asserts no-leak strings and the raw row unchanged (still open, `CompletedAt` null); it fails under `no_save`, `untracked_load` and `swap_routes`. |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| Mutant | Tests failed |
+|---|---|
+| `complete_no_guard` / `reopen_no_guard` (no-op re-stamps) | 2 / 2 (unit + integration AC-032 / AC-034) |
+| `complete_noop_restamp_only_updated` (done → bump UpdatedAt, return true) | 2 |
+| `complete_no_updated` / `reopen_no_updated` | 4 / 4 |
+| `reopen_noop_save_true` (open → return true, nothing changed) | 1 (unit AC-034; equivalent at HTTP level) |
+| `no_save` (never `SaveChangesAsync`) | 7 |
+| `untracked_load` (`AsNoTracking`) | 7 |
+| `no_null_404` (`FirstAsync`, no null branch) | 2 (AC-036 GUID rows) |
+| `swap_routes` (complete ↔ reopen) | 10 |
+| `bind_body` (complete binds `UpdateTodoRequest?`) | 1 (AC-035 malformed-body row) |
+| `always_save` (drop the `if`, always save) | 0, equivalent (see Notes) |
+
+**Findings:**
+- **Should-fix (test-writer)** `tests/MicroCrm.Api.Tests/Integration/Todos/CompleteReopenTodoTests.cs:206`: `if (Guid.TryParse(id, out _))` skips `ProblemAssert.IsProblemAsync` for the `not-a-guid` rows. That's the same gap fixed on PUT in this task, now in a new test. plan.md section 8 and the AC-072 traceability row say every error test goes through `ProblemAssert`. The behaviour is already correct: a scratch probe ran `ProblemAssert.IsProblemAsync(r, 404)` on `POST /api/todos/{not-a-guid|123}/{complete|reopen}` and passed 3/3, so it isn't Blocking. Fixed means: drop the condition so every row asserts the problem, and delete or correct the comment at line 194. That comment says the problem body "is only asserted after GREEN", but the GUID rows also pass `ProblemAssert` at RED, because status code pages turn the missing-route 404 into problem+json. What changed at GREEN is the handler now producing the 404, which `no_null_404` proves. Can be folded into any later test-writer task.
+
+**Notes:**
+- **The no-op path skips SaveChanges, and `updatedAt` stays unchanged.** `ChangeDoneState` saves only when `Complete`/`Reopen` returns true, and both return false before touching any field. AC-032/AC-034 advance the clock 2h and compare the response, a later GET and the raw row, so any re-stamp is caught. The `always_save` mutant is equivalent: with no tracked changes, EF issues no UPDATE. The plan prescribes the branch (design point 5, tasks.md "no-op → 200 without `SaveChanges`"), and the unit tests demand the bool, so it isn't drift. It stays unobservable at T-14 too, because a no-op `SaveChanges` can't raise a concurrency exception.
+- **Minimality is clean.** No `DbUpdateConcurrencyException` catch (T-14), no `IsModified` (T-13), no `.WithName`/`.WithSummary`/`Produces*` (T-15), no `AnyAsync`/contact pre-check, and no body parameter on either action. Nothing changed under `Data/`, so there's no new migration. `Complete`/`Reopen` match the plan signatures (plan lines 139-140).
+- **The AC-073 merge is acceptable.** tasks.md names `CompleteTodo_WhenDatabaseFails_..._AC073` and `ReopenTodo_WhenDatabaseFails_..._AC073`, and the single Theory over `complete`/`reopen` gives one result row per action with the same assertions. The cost is only that the Traceability table now needs the Theory name. The PUT rename (`UpdateTodo_NonGuidId_Returns404Problem_AC026`) also needs updating there. Route both to `/document`.
+- **No test removed or weakened.** 464 → 484 = +20 (4 unit, 13 in `CompleteReopenTodoTests`, 3 in `TodoErrorHandlingTests`). The only edit to an existing test is the T-07 Should-fix: the PUT non-GUID theory now uses `ProblemAssert.IsProblemAsync` (strengthened). That closes the T-07 Should-fix.
+- The RED claim is consistent: before this diff there was no route, so the GUID AC-036 rows passed as guards and everything else expecting 200/500 got 404.

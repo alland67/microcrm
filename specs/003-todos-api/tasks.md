@@ -292,7 +292,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-08: Complete and reopen
+- [x] T-08: Complete and reopen. Done: Todo.Complete/Reopen (bool), POST complete/reopen with no body, no-op skips SaveChanges; review APPROVE (1 should-fix: AC-036 non-GUID rows skip ProblemAssert, deferred to T-09)
   - **ACs:** AC-031, AC-032, AC-033, AC-034, AC-035, AC-036, AC-037, AC-073 (complete/reopen)
   - **Depends on:** T-07
   - **Tests:**

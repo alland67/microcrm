@@ -64,6 +64,19 @@ public sealed class TodoErrorHandlingTests(ApiFactory factory) : IClassFixture<A
 
         await AssertSafe500Async(response);
     }
+
+    [Theory]
+    [InlineData("complete")]
+    [InlineData("reopen")]
+    public async Task CompleteOrReopenTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073(string action)
+    {
+        await BreakDatabaseAsync();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync($"/api/todos/{Guid.CreateVersion7()}/{action}", null, Ct);
+
+        await AssertSafe500Async(response);
+    }
 }
 
 // Own fixture: installs a BEFORE INSERT trigger on the shared in-memory database and drops it in finally.
@@ -195,5 +208,45 @@ public sealed class UpdateTodoNonForeignKeyFailureTests(ApiFactory factory) : IC
 
         Assert.Equal(before, await SnapshotAsync());
         Assert.Equal(rowBefore, await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id));
+    }
+
+    // AC-073: a rejected UPDATE during complete is a safe 500 and the to-do stays open and unchanged.
+    [Fact]
+    public async Task CompleteTodo_WhenUpdateRejected_Returns500AndLeavesTodoOpen_AC073()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var created = await client.PostAsJsonAsync("/api/todos", new { title = "Pre-existing" }, Ct);
+        Assert.Equal(System.Net.HttpStatusCode.Created, created.StatusCode);
+        using var createdDoc = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct));
+        var id = createdDoc.RootElement.GetProperty("id").GetGuid();
+        var rowBefore = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
+        factory.Time.Advance(TimeSpan.FromHours(1));
+
+        await factory.ExecuteSqlAsync(
+            "CREATE TRIGGER trg_fail_complete_todo BEFORE UPDATE ON Todos BEGIN SELECT RAISE(ABORT, 'x'); END");
+        HttpResponseMessage response;
+        string body;
+        try
+        {
+            response = await client.PostAsync($"/api/todos/{id}/complete", null, Ct);
+            body = await response.Content.ReadAsStringAsync(Ct);
+        }
+        finally
+        {
+            await factory.ExecuteSqlAsync("DROP TRIGGER IF EXISTS trg_fail_complete_todo");
+        }
+
+        Assert.Equal(500, (int)response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("Sqlite", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("RAISE", body, StringComparison.OrdinalIgnoreCase);
+
+        var rowAfter = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
+        Assert.Equal(rowBefore, rowAfter);
+        Assert.Equal(0L, Convert.ToInt64(rowAfter!["IsDone"]));
+        Assert.Null(rowAfter["CompletedAt"]);
     }
 }

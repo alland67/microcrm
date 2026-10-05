@@ -14,6 +14,8 @@ public static class TodosEndpoints
         group.MapPost(string.Empty, CreateTodo);
         group.MapGet("/{id:guid}", GetTodoById);
         group.MapPut("/{id:guid}", UpdateTodo);
+        group.MapPost("/{id:guid}/complete", CompleteTodo);
+        group.MapPost("/{id:guid}/reopen", ReopenTodo);
 
         return app;
     }
@@ -100,6 +102,41 @@ public static class TodosEndpoints
         catch (DbUpdateException ex) when (SqliteErrors.IsForeignKeyViolation(ex))
         {
             return UnknownContact();
+        }
+
+        return TypedResults.Ok(TodoResponse.From(todo));
+    }
+
+    private static Task<Results<Ok<TodoResponse>, ProblemHttpResult>> CompleteTodo(
+        Guid id,
+        AppDbContext db,
+        TimeProvider time,
+        CancellationToken ct) =>
+        ChangeDoneState(id, db, (todo, now) => todo.Complete(now), time, ct);
+
+    private static Task<Results<Ok<TodoResponse>, ProblemHttpResult>> ReopenTodo(
+        Guid id,
+        AppDbContext db,
+        TimeProvider time,
+        CancellationToken ct) =>
+        ChangeDoneState(id, db, (todo, now) => todo.Reopen(now), time, ct);
+
+    private static async Task<Results<Ok<TodoResponse>, ProblemHttpResult>> ChangeDoneState(
+        Guid id,
+        AppDbContext db,
+        Func<Todo, DateTimeOffset, bool> change,
+        TimeProvider time,
+        CancellationToken ct)
+    {
+        var todo = await db.Todos.FirstOrDefaultAsync(t => t.Id == id, ct);
+        if (todo is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (change(todo, time.GetUtcNow()))
+        {
+            await db.SaveChangesAsync(ct);
         }
 
         return TypedResults.Ok(TodoResponse.From(todo));
