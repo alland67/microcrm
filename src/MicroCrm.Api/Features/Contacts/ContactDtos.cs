@@ -8,6 +8,14 @@ public sealed record CreateContactRequest(
     string? Company,
     string? Notes);
 
+public sealed record UpdateContactRequest(
+    string? FirstName,
+    string? LastName,
+    string? Email,
+    string? Phone,
+    string? Company,
+    string? Notes);
+
 public sealed record ContactResponse(
     Guid Id,
     string FirstName,

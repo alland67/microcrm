@@ -138,4 +138,26 @@ public sealed class ListQueryTests
 
         Assert.False(query.TryGetSkip(out _));
     }
+
+    [Theory]
+    [InlineData("0", null, "page", "Must be an integer between 1 and 2147483647.")]
+    [InlineData("abc", null, "page", "Must be an integer between 1 and 2147483647.")]
+    [InlineData(null, "0", "pageSize", "Must be an integer between 1 and 100.")]
+    [InlineData(null, "101", "pageSize", "Must be an integer between 1 and 100.")]
+    public void Parse_InvalidPage_MessageIsSentenceCaseWithoutName_AC039(string? page, string? pageSize, string key, string expected)
+    {
+        var (_, errors) = ListQuery.Parse(page, pageSize, null);
+
+        Assert.NotNull(errors);
+        Assert.Equal([expected], errors[key]);
+    }
+
+    [Fact]
+    public void Parse_SearchTooLong_MessageIsSentenceCaseWithoutName_AC039()
+    {
+        var (_, errors) = ListQuery.Parse(null, null, new string('a', 255));
+
+        Assert.NotNull(errors);
+        Assert.Equal(["Must be 254 characters or fewer."], errors["search"]);
+    }
 }

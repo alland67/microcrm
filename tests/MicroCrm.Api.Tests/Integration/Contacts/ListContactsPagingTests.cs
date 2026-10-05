@@ -180,4 +180,20 @@ public sealed class ListContactsPagingTests(ApiFactory factory) : IClassFixture<
 
         using var problem = await ProblemAssert.IsProblemAsync(response, 400, "page", "pageSize");
     }
+
+    [Fact]
+    public async Task ListContacts_ValidationMessages_FollowStyle_AC039()
+    {
+        using var client = factory.CreateClient();
+        var search = new string('a', 255);
+
+        var response = await client.GetAsync($"/api/contacts?page=0&pageSize=101&search={search}", Ct);
+
+        using var problem = await ProblemAssert.IsProblemAsync(response, 400, "page", "pageSize", "search");
+        ProblemAssert.AssertValidationMessageStyle(problem);
+        var errors = problem.RootElement.GetProperty("errors");
+        Assert.Equal(["Must be an integer between 1 and 2147483647."], errors.GetProperty("page").EnumerateArray().Select(e => e.GetString()).ToArray());
+        Assert.Equal(["Must be an integer between 1 and 100."], errors.GetProperty("pageSize").EnumerateArray().Select(e => e.GetString()).ToArray());
+        Assert.Equal(["Must be 254 characters or fewer."], errors.GetProperty("search").EnumerateArray().Select(e => e.GetString()).ToArray());
+    }
 }

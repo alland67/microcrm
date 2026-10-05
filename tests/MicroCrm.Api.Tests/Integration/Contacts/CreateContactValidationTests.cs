@@ -120,6 +120,27 @@ public sealed class CreateContactValidationTests(ApiFactory factory) : IClassFix
         Assert.Equal(before, await CountContactsAsync());
     }
 
+    [Fact]
+    public async Task CreateContact_ValidationMessages_FollowStyle_AC039()
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["email"] = "not-an-email",
+            ["phone"] = new string('1', 51),
+        };
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/contacts", body, Ct);
+
+        using var problem = await ProblemAssert.IsProblemAsync(response, 400, "firstName", "email", "phone");
+        ProblemAssert.AssertValidationMessageStyle(problem);
+        var errors = problem.RootElement.GetProperty("errors");
+        Assert.Equal(["Required."], errors.GetProperty("firstName").EnumerateArray().Select(e => e.GetString()).ToArray());
+        // Guards (already compliant at RED):
+        Assert.Equal(["Must be a valid email address."], errors.GetProperty("email").EnumerateArray().Select(e => e.GetString()).ToArray());
+        Assert.Equal(["Must be 50 characters or fewer."], errors.GetProperty("phone").EnumerateArray().Select(e => e.GetString()).ToArray());
+    }
+
     private async Task<long> CountContactsAsync()
     {
         await using var connection = new SqliteConnection(factory.ConnectionString);

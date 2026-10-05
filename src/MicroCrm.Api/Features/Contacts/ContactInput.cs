@@ -11,21 +11,28 @@ public sealed record ContactInput(
     public const int FirstNameMax = 100, LastNameMax = 100, EmailMax = 254,
                      PhoneMax = 50, CompanyMax = 200, NotesMax = 4000;
 
-    public static (ContactInput? Input, Dictionary<string, string[]>? Errors) Parse(CreateContactRequest request)
+    public static (ContactInput? Input, Dictionary<string, string[]>? Errors) Parse(CreateContactRequest request) =>
+        Parse(request.FirstName, request.LastName, request.Email, request.Phone, request.Company, request.Notes);
+
+    public static (ContactInput? Input, Dictionary<string, string[]>? Errors) Parse(UpdateContactRequest request) =>
+        Parse(request.FirstName, request.LastName, request.Email, request.Phone, request.Company, request.Notes);
+
+    private static (ContactInput? Input, Dictionary<string, string[]>? Errors) Parse(
+        string? rawFirstName, string? rawLastName, string? rawEmail, string? rawPhone, string? rawCompany, string? rawNotes)
     {
         var errors = new Dictionary<string, string[]>();
 
-        var firstName = request.FirstName?.Trim();
+        var firstName = rawFirstName?.Trim();
         if (string.IsNullOrEmpty(firstName))
         {
-            errors["firstName"] = ["First name is required."];
+            errors["firstName"] = ["Required."];
         }
 
-        var lastName = TrimToNull(request.LastName);
-        var email = TrimToNull(request.Email);
-        var phone = TrimToNull(request.Phone);
-        var company = TrimToNull(request.Company);
-        var notes = TrimToNull(request.Notes);
+        var lastName = TrimToNull(rawLastName);
+        var email = TrimToNull(rawEmail);
+        var phone = TrimToNull(rawPhone);
+        var company = TrimToNull(rawCompany);
+        var notes = TrimToNull(rawNotes);
 
         CheckMax(errors, "firstName", firstName, FirstNameMax);
         CheckMax(errors, "lastName", lastName, LastNameMax);

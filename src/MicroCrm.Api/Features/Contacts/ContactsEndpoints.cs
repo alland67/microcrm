@@ -22,6 +22,15 @@ public static class ContactsEndpoints
         group.MapGet("/{id:guid}", GetContact)
             .WithName("GetContactById")
             .WithSummary("Get a contact by id");
+        group.MapPut("/{id:guid}", UpdateContact)
+            .WithName("UpdateContact")
+            .WithSummary("Replace a contact")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        group.MapDelete("/{id:guid}", DeleteContact)
+            .WithName("DeleteContact")
+            .WithSummary("Delete a contact")
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
@@ -114,11 +123,70 @@ public static class ContactsEndpoints
         }
         catch (DbUpdateException ex) when (SqliteErrors.IsUniqueConstraintViolation(ex))
         {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "A contact with this email already exists.");
+            return DuplicateEmailProblem();
         }
 
         return TypedResults.Created($"/api/contacts/{contact.Id}", ContactResponse.From(contact));
     }
+
+    private static async Task<Results<Ok<ContactResponse>, ValidationProblem, ProblemHttpResult>> UpdateContact(
+        Guid id,
+        UpdateContactRequest request,
+        AppDbContext db,
+        TimeProvider time,
+        CancellationToken ct)
+    {
+        var (input, errors) = ContactInput.Parse(request);
+        if (input is null)
+        {
+            return TypedResults.ValidationProblem(errors!);
+        }
+
+        var contact = await db.Contacts.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (contact is null)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound);
+        }
+
+        contact.FirstName = input.FirstName;
+        contact.LastName = input.LastName;
+        contact.Email = input.Email;
+        contact.Phone = input.Phone;
+        contact.Company = input.Company;
+        contact.Notes = input.Notes;
+        contact.UpdatedAt = time.GetUtcNow();
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The contact was deleted between the load and the save.
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsUniqueConstraintViolation(ex))
+        {
+            return DuplicateEmailProblem();
+        }
+
+        return TypedResults.Ok(ContactResponse.From(contact));
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteContact(
+        Guid id,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var deleted = await db.Contacts.Where(c => c.Id == id).ExecuteDeleteAsync(ct);
+
+        return deleted == 0
+            ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound)
+            : TypedResults.NoContent();
+    }
+
+    private static ProblemHttpResult DuplicateEmailProblem() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status409Conflict,
+            title: "A contact with this email already exists.");
 }

@@ -1,1 +1,31 @@
-@MicroCrm.Api_HostAddress = http://localhost:5185
+# Port matches DEV_API_CMD in .claude/harness.env (dotnet run ... --urls http://localhost:5080)
+@MicroCrm.Api_HostAddress = http://localhost:5080
+
+### Create a contact; the PUT and DELETE below use its id
+# @name createContact
+POST {{MicroCrm.Api_HostAddress}}/api/contacts
+Content-Type: application/json
+
+{
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "email": "ada@example.com"
+}
+
+###
+
+PUT {{MicroCrm.Api_HostAddress}}/api/contacts/{{createContact.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "email": "ada@example.com",
+  "phone": null,
+  "company": "Analytical Engines",
+  "notes": null
+}
+
+###
+
+DELETE {{MicroCrm.Api_HostAddress}}/api/contacts/{{createContact.response.body.$.id}}
