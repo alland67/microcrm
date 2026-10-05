@@ -2,7 +2,7 @@
 
 > Living description of the system **as it is**. Maintained by the planner (/plan) and documenter (/document).
 
-**Last updated:** 2026-10-01 (spec 001)
+**Last updated:** 2026-10-03 (spec 002)
 
 ## Overview
 MicroCRM lets a user manage **contacts** and **to-dos** (optionally linked to a contact). A React single-page app talks to an ASP.NET Core REST API backed by SQLite.
@@ -22,7 +22,7 @@ In development, Vite serves the SPA and proxies `/api` to the API on `http://loc
 | Module | Path | Responsibility | Status |
 |---|---|---|---|
 | API host | `src/MicroCrm.Api/Program.cs` | Composition root: services, error pipeline, migrate at startup, OpenAPI (Development), `MapContactsEndpoints()` | built |
-| Contacts feature | `src/MicroCrm.Api/Features/Contacts/` | `Contact` entity, `ContactDtos`, `ContactInput` (trim + validate), `ContactsEndpoints` (create, get by id, list with paging and search) | built (spec 001); update/delete planned (spec 002) |
+| Contacts feature | `src/MicroCrm.Api/Features/Contacts/` | `Contact` entity, `ContactDtos`, `ContactInput` (trim + validate), `ContactsEndpoints` (create, get by id, list with paging and search, update, delete) | built (spec 001, 002) |
 | Todos feature | `src/MicroCrm.Api/Features/Todos/` | To-do endpoints, contact link | planned (spec 003) |
 | Data | `src/MicroCrm.Api/Data/` | `AppDbContext`, `ContactConfiguration` (NOCASE collations, unique `Email` index), `SqliteErrors` (unique-violation check), `Migrations/` | built |
 | Common | `src/MicroCrm.Api/Common/` | `Paging.cs` (`ListQuery.Parse`, `PagedResponse<T>`), `LikePattern` (escape for `LIKE ... ESCAPE '\'`) | built |
@@ -55,6 +55,8 @@ Max lengths (100/100/254/50/200/4000) are enforced in `ContactInput`, not in the
 
 ## Key flows
 - **Create:** `ContactInput.Parse` -> insert -> unique-violation (SQLite 2067) maps to 409.
+- **Update (`PUT /api/contacts/{id}`, full replace):** body binding (400, plain ProblemDetails) -> `ContactInput.Parse(UpdateContactRequest)` (400 with `errors`; shares one core with create) -> tracked lookup (404) -> assign all six fields, `UpdatedAt = TimeProvider` now -> `SaveChangesAsync`. On save: `DbUpdateConcurrencyException` (deleted in between) -> 404; unique violation (SQLite 2067) -> 409; anything else -> 500 via the exception handler. `id` and `createdAt` never change.
+- **Delete (`DELETE /api/contacts/{id}`):** a single `ExecuteDeleteAsync`; 0 rows affected -> 404, otherwise 204. No read-then-delete, so concurrent deletes give exactly one 204. Spec 003 must make deletion unlink to-dos (decision in spec 002; see roadmap).
 - **List:** `ListQuery.Parse` -> filter (escaped `LIKE` on first name, last name, email) -> count -> order (last name nulls last, first name, id) -> skip/take.
 
 ## Cross-cutting concerns
@@ -72,7 +74,8 @@ Max lengths (100/100/254/50/200/4000) are enforced in `ContactInput`, not in the
 | End-to-end | (later) Playwright | `web/e2e/` | A few critical journeys across both tiers |
 
 ## Known risks & tech debt
+- Spec 001's `AlterColumn` migrations log an EF Core warning at startup on a fresh database: "PRAGMA foreign_keys = 0 cannot be executed in a transaction". It is harmless for the local SQLite file; ignore it.
 - Frontend DTO types are hand-written and can drift from the API. Mitigation: reviewer checks both sides for API tasks; consider OpenAPI type generation later (ADR).
 
 ## Decisions
-See `docs/adr/`, especially ADR-0002 (stack), ADR-0003 (case-insensitive SQLite), ADR-0004 (validation and errors), ADR-0005 (test database).
+See `docs/adr/`, especially ADR-0002 (stack), ADR-0003 (case-insensitive SQLite), ADR-0004 (validation and errors), ADR-0005 (test database), ADR-0006 (validation message style).

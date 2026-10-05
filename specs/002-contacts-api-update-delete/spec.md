@@ -1,6 +1,6 @@
 # 002: Contacts API: update and delete
 
-**Status:** Approved
+**Status:** Done
 **Type:** Feature
 **Author:** Allan Downs with planner
 **Created:** 2026-10-02  **Approved:** 2026-10-02
@@ -161,4 +161,17 @@ None open. The user accepted every recommendation on 2026-10-02 ("accept all rec
 - [x] Q6: Shape and reach of the Unlink rule. **Resolved: yes.** The to-do link becomes plain `null` with no placeholder contact, and the rule applies to every contact-deleting path in spec 003 and later, including bulk and nested operations (see "Decision: deleting a contact and its to-dos").
 
 ## Implementation notes
-_Added by documenter after completion: links to main modules and tests._
+Modules (under `src/MicroCrm.Api/`):
+- `Features/Contacts/ContactsEndpoints.cs`: `UpdateContact` (PUT), `DeleteContact` (DELETE, single `ExecuteDeleteAsync`), shared `DuplicateEmailProblem()`
+- `Features/Contacts/ContactInput.cs`, `ContactDtos.cs`: `Parse(UpdateContactRequest)` and `Parse(CreateContactRequest)` share one private core; `UpdateContactRequest` has no system fields
+- `Common/Paging.cs`: list messages aligned to ADR-0006
+- No schema change, no migration.
+
+Tests (under `tests/MicroCrm.Api.Tests/`): `Integration/Contacts/` `UpdateContactTests`, `UpdateContactValidationTests`, `UpdateContactConflictTests`, `UpdateContactListEffectsTests`, `UpdateDeleteRaceTests`, `DeleteContactTests`; extended `Integration/ErrorHandlingTests.cs`, `OpenApiTests.cs`, `Infrastructure/ProblemAssert.cs` (style helper), `Unit/`. AC to test mapping: `tasks.md` Traceability. AC-037 is checked through `ProblemAssert.IsProblemAsync` in every error-path test. Review: `review.md` (FINAL, 272/272 passing). Docs: `docs/conventions.md` (Errors row), `docs/architecture.md`, ADR-0006.
+
+Open follow-ups (none block this spec):
+- Spec 003 must implement and test the Unlink rule (FK `OnDelete(SetNull)`, atomic with the delete).
+- `src/MicroCrm.Api/MicroCrm.Api.http`: sample PUT and DELETE use an all-zero GUID, and the host port 5185 differs from `DEV_API_CMD` (5080).
+- The 409 title text ("A contact with this email already exists.") is not pinned by any test.
+- OpenAPI still documents the get-by-id 404 without `application/problem+json` (spec 001 follow-up).
+- Last-write-wins for concurrent updates is accepted for v1.

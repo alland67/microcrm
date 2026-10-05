@@ -22,7 +22,7 @@ This keeps later tasks genuinely red.
 
 ---
 
-- [ ] T-01: Align validation messages on create and list to one style
+- [x] T-01: Align validation messages on create and list to one style. Done: create/list messages follow ADR-0006; review APPROVE (1 nit: Paging.cs comment wording)
   - **ACs:** AC-039 (create and list)
   - **Depends on:** none
   - **Tests:**
@@ -37,7 +37,7 @@ This keeps later tasks genuinely red.
   - **Done when:** create and list return the canonical messages from ADR-0006; status codes and `errors` keys are unchanged; every existing test still passes. Suite green.
   - **Doc follow-through (not this cycle):** the documenter records the rule in `docs/conventions.md` (Errors row) during `/document 002` (see D-01). The implementer must not edit that file.
 
-- [ ] T-02: Update a contact: full replace, persisted, visible in list and search
+- [x] T-02: Update a contact: full replace, persisted, visible in list and search. Done: PUT full replace via shared ContactInput core; review APPROVE after 1 fix cycle (early validation branch + OpenAPI metadata removed)
   - **ACs:** AC-001, AC-002, AC-003, AC-004, AC-005, AC-006, AC-007, AC-008, AC-009, AC-010, AC-011, NFR-002
   - **Depends on:** T-01
   - **Tests:**
@@ -64,7 +64,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** every test gets 405 problem+json (only GET is mapped on `/api/contacts/{id}`).
   - **Done when:** a valid PUT to an existing contact returns 200 with the full camelCase body; values are trimmed, blank/omitted optional fields are `null`, email casing is preserved; `id`/`createdAt` never change and `updatedAt` equals the clock; the change is visible to GET, list order, and search from new connections; other contacts are untouched. Suite green.
 
-- [ ] T-03: Update rejects invalid fields with 400 (same errors as create)
+- [x] T-03: Update rejects invalid fields with 400 (same errors as create). Done: PUT validation branch before lookup; review APPROVE (2 optional test nits)
   - **ACs:** AC-017, AC-018, AC-019, AC-020, AC-021, AC-024, AC-039 (update), NFR-004, AC-037 (400)
   - **Depends on:** T-02
   - **Tests:**
@@ -83,7 +83,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** invalid bodies reach the save path without a validation branch → 500 (null input) instead of 400.
   - **Done when:** every invalid update returns 400 validation ProblemDetails listing all offending fields by camelCase key, with ADR-0006 messages identical to create's; unreadable bodies return 400 ProblemDetails; validation is checked before existence; the stored contact never changes. Suite green.
 
-- [ ] T-04: Update of an unknown or non-GUID id returns 404 and never creates
+- [x] T-04: Update of an unknown or non-GUID id returns 404 and never creates. Done: PUT 404 ProblemDetails on missing contact; review APPROVE (no findings)
   - **ACs:** AC-022, AC-023, AC-025, AC-037 (404)
   - **Depends on:** T-03
   - **Tests:** `T/Integration/Contacts/UpdateContactTests.cs` (extend):
@@ -95,7 +95,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** null entity dereference → 500 for AC-022 and AC-025.
   - **Done when:** a PUT to a well-formed GUID with no contact returns 404 `application/problem+json`, creates nothing, and takes precedence over an email conflict; a non-GUID id returns 404. Suite green.
 
-- [ ] T-05: Update email uniqueness, including concurrent creates and updates
+- [x] T-05: Update email uniqueness, including concurrent creates and updates. Done: PUT 409 on unique violation via shared DuplicateEmailProblem(); review APPROVE (1 nit: 409 title unpinned)
   - **ACs:** AC-012, AC-013, AC-014, AC-015, AC-016, AC-034, AC-037 (409), AC-038 (update), NFR-003 (guard)
   - **Depends on:** T-04
   - **Tests:**
@@ -115,7 +115,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** AC-014 and AC-034 get 500 from the unhandled unique violation.
   - **Done when:** an update to another contact's email (case/whitespace ignored) returns 409 ProblemDetails and changes nothing; self-matches, case-only changes, and email removal succeed; freed emails are reusable; concurrent create/update races never produce a 5xx and never let two contacts hold one email; non-unique DB failures on update stay safe 500s with data unchanged. Suite green.
 
-- [ ] T-06: Delete a contact
+- [x] T-06: Delete a contact. Done: DELETE via single ExecuteDeleteAsync, 204; review APPROVE (no new findings)
   - **ACs:** AC-026, AC-027, AC-028, AC-029, AC-032
   - **Depends on:** T-05
   - **Tests:** `T/Integration/Contacts/DeleteContactTests.cs` (new; `IAsyncLifetime` calls `ResetAsync`):
@@ -130,7 +130,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** 405 problem+json.
   - **Done when:** deleting an existing contact returns 204 with no body; the contact is gone for GET, list, search, and `totalCount` on new connections; its email is free again; other contacts are untouched. Suite green.
 
-- [ ] T-07: Delete of unknown, already-deleted, or non-GUID ids; no resurrection by PUT; concurrent deletes
+- [x] T-07: Delete of unknown, already-deleted, or non-GUID ids; no resurrection by PUT; concurrent deletes. Done: zero affected rows → 404 ProblemDetails; review APPROVE (no findings)
   - **ACs:** AC-030, AC-031, AC-033, AC-036, AC-037 (404 on delete), AC-038 (delete)
   - **Depends on:** T-06
   - **Tests:**
@@ -147,7 +147,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** AC-030 gets 204 instead of 404; AC-036 gets ten 204s.
   - **Done when:** deleting a missing or already-deleted id returns 404 ProblemDetails; non-GUID ids return 404 and delete nothing; a PUT after delete is 404 and doesn't recreate; concurrent deletes give exactly one 204; DB failures on delete are safe 500s and leave the row in place. Suite green.
 
-- [ ] T-08: An update racing a delete never returns 500 or recreates the contact
+- [x] T-08: An update racing a delete never returns 500 or recreates the contact. Done: DbUpdateConcurrencyException → 404 before unique-violation catch; review APPROVE (no findings)
   - **ACs:** AC-035
   - **Depends on:** T-07
   - **Tests:** `T/Integration/Contacts/UpdateDeleteRaceTests.cs` (new):
@@ -158,7 +158,7 @@ This keeps later tasks genuinely red.
   - **Expected RED:** the deterministic test gets 500 (`DbUpdateConcurrencyException`: zero rows affected).
   - **Done when:** an update that loses a race with a delete returns 404 ProblemDetails, the contact stays deleted, and concurrent update/delete pairs only ever return their documented codes. Suite green.
 
-- [ ] T-09: OpenAPI describes update and delete, with ProblemDetails error responses
+- [x] T-09: OpenAPI describes update and delete, with ProblemDetails error responses. Done: WithName/WithSummary/ProducesProblem on PUT and DELETE; review APPROVE (no findings)
   - **ACs:** NFR-001, AC-037 (documented content type)
   - **Depends on:** T-08
   - **Tests:** `T/Integration/OpenApiTests.cs` (extend):
@@ -174,7 +174,7 @@ This keeps later tasks genuinely red.
 NFR-003 has no task of its own. The reviewer inspects every task's logging (no request bodies, emails, or stored field values at Information or above; `EnableSensitiveDataLogging` never enabled), and T-05 adds an automated guard.
 
 ### Documentation task (documenter, during `/document 002`; not a red-green cycle)
-- [ ] D-01: Record the validation message style and the new endpoints in the docs
+- [x] D-01: Record the validation message style and the new endpoints in the docs. Done: conventions, architecture, CHANGELOG, roadmap, spec notes updated and checked against code; ADR-0006 already Accepted
   - **ACs:** AC-039 (convention record), spec Constraints ("`docs/conventions.md` (Errors row) records the message style")
   - **Depends on:** T-01..T-09
   - **Files:** `docs/conventions.md` (Errors row: sentence case, uppercase start, period end, no field/parameter name or quoted key, canonical messages; reference ADR-0006), `docs/adr/0006-validation-message-style.md` (status → Accepted once the plan is approved, if not already), `docs/architecture.md` (Contacts row and Key flows: update, delete), `CHANGELOG.md` (Added: PUT/DELETE; Changed: old → new validation messages)
@@ -183,46 +183,46 @@ NFR-003 has no task of its own. The reviewer inspects every task's logging (no r
 ## Traceability
 | AC | Task(s) | Test(s) (filled in during build) |
 |---|---|---|
-| AC-001 | T-02 | |
-| AC-002 | T-02 | |
-| AC-003 | T-02 | |
-| AC-004 | T-02 | |
-| AC-005 | T-02 | |
-| AC-006 | T-02 | |
-| AC-007 | T-02 | |
-| AC-008 | T-02 | |
-| AC-009 | T-02 | |
-| AC-010 | T-02 | |
-| AC-011 | T-02 | |
-| AC-012 | T-05 (guard) | |
-| AC-013 | T-05 (guard) | |
-| AC-014 | T-05 | |
-| AC-015 | T-05 (guard) | |
-| AC-016 | T-05 (guard) | |
-| AC-017 | T-03 | |
-| AC-018 | T-03 | |
-| AC-019 | T-03 | |
-| AC-020 | T-03 | |
-| AC-021 | T-03 (guard) | |
-| AC-022 | T-04 | |
-| AC-023 | T-04 (guard) | |
-| AC-024 | T-03 | |
-| AC-025 | T-04 | |
-| AC-026 | T-06 | |
-| AC-027 | T-06 | |
-| AC-028 | T-06 | |
-| AC-029 | T-06 | |
-| AC-030 | T-07 | |
-| AC-031 | T-07 (guard) | |
-| AC-032 | T-06 | |
-| AC-033 | T-07 (guard) | |
-| AC-034 | T-05 | |
-| AC-035 | T-08 | |
-| AC-036 | T-07 | |
+| AC-001 | T-02 | `UpdateContactTests.UpdateContact_WithValidBody_Returns200WithUpdatedContact_AC001` |
+| AC-002 | T-02 | `UpdateContactTests.UpdateContact_ThenRead_ReturnsPersistedValuesOnNewConnections_AC002` |
+| AC-003 | T-02 | `UpdateContactTests.UpdateContact_OptionalFieldOmittedNullOrBlank_StoredAsNull_AC003` |
+| AC-004 | T-02 | `UpdateContactTests.UpdateContact_WithSurroundingWhitespace_StoresTrimmed_AC004` |
+| AC-005 | T-02 | `UpdateContactTests.UpdateContact_IgnoresBodyIdAndTimestamps_KeepsIdAndCreatedAt_AC005` |
+| AC-006 | T-02 | `UpdateContactTests.UpdateContact_SetsUpdatedAtFromClock_EvenWhenValuesUnchanged_AC006` |
+| AC-007 | T-02 | `UpdateContactTests.UpdateContact_FieldsAtMax_Returns200_AC007` |
+| AC-008 | T-02 | `UpdateContactListEffectsTests.UpdateContact_ChangedNames_ReorderListByNewValues_AC008` |
+| AC-009 | T-02 | `UpdateContactListEffectsTests.UpdateContact_ChangedEmail_SearchFindsNewNotOld_AC009` |
+| AC-010 | T-02 | `UpdateContactTests.UpdateContact_WithUppercaseEmail_PreservesCasing_AC010` |
+| AC-011 | T-02 | `UpdateContactListEffectsTests.UpdateContact_LeavesOtherContactsUnchanged_AC011` |
+| AC-012 | T-05 (guard) | `UpdateContactConflictTests.UpdateContact_SameEmailDifferentCaseOrWhitespace_Returns200_AC012` |
+| AC-013 | T-05 (guard) | `UpdateContactConflictTests.UpdateContact_ChangeOnlyCaseOfOwnEmail_Returns200AndStoresNewCasing_AC013` |
+| AC-014 | T-05 | `UpdateContactConflictTests.UpdateContact_EmailOfAnotherContact_Returns409ProblemAndLeavesContactUnchanged_AC014` |
+| AC-015 | T-05 (guard) | `UpdateContactConflictTests.UpdateContact_ToNoEmail_AlwaysSucceeds_AC015` |
+| AC-016 | T-05 (guard) | `UpdateContactConflictTests.UpdateContact_OldEmailCanBeReusedAfterChangeOrRemoval_AC016` |
+| AC-017 | T-03 | `UpdateContactValidationTests.UpdateContact_WithoutFirstName_Returns400WithFirstNameError_AC017` |
+| AC-018 | T-03 | `UpdateContactValidationTests.UpdateContact_FieldOverMax_Returns400WithFieldError_AC018` |
+| AC-019 | T-03 | `UpdateContactValidationTests.UpdateContact_WithInvalidEmail_Returns400WithEmailError_AC019` |
+| AC-020 | T-03 | `UpdateContactValidationTests.UpdateContact_WithMultipleInvalidFields_ReturnsAllCamelCaseKeys_AC020` |
+| AC-021 | T-03 (guard) | `UpdateContactValidationTests.UpdateContact_WithMalformedBody_Returns400Problem_AC021` |
+| AC-022 | T-04 | `UpdateContactTests.UpdateContact_UnknownGuid_Returns404ProblemAndCreatesNothing_AC022` |
+| AC-023 | T-04 (guard) | `UpdateContactTests.UpdateContact_NonGuidId_Returns404Problem_AC023` |
+| AC-024 | T-03 | `UpdateContactValidationTests.UpdateContact_InvalidBodyToUnknownId_Returns400_AC024` |
+| AC-025 | T-04 | `UpdateContactTests.UpdateContact_ConflictingEmailToUnknownId_Returns404_AC025` |
+| AC-026 | T-06 | `DeleteContactTests.DeleteContact_Existing_Returns204WithEmptyBody_AC026` |
+| AC-027 | T-06 | `DeleteContactTests.DeleteContact_ThenGet_Returns404OnNewConnections_AC027` |
+| AC-028 | T-06 | `DeleteContactTests.DeleteContact_ExcludedFromListAndSearch_TotalCountDrops_AC028` |
+| AC-029 | T-06 | `DeleteContactTests.DeleteContact_EmailCanBeReusedByCreateOrUpdate_AC029` |
+| AC-030 | T-07 | `DeleteContactTests.DeleteContact_UnknownOrAlreadyDeleted_Returns404Problem_AC030` |
+| AC-031 | T-07 (guard) | `DeleteContactTests.DeleteContact_NonGuidId_Returns404AndDeletesNothing_AC031` |
+| AC-032 | T-06 | `DeleteContactTests.DeleteContact_LeavesOtherContactsUnchanged_AC032` |
+| AC-033 | T-07 (guard) | `DeleteContactTests.UpdateContact_AfterDelete_Returns404AndDoesNotRecreate_AC033` |
+| AC-034 | T-05 | `UpdateContactConflictTests.CreateAndUpdate_ConcurrentSameEmail_AtMostOneHoldsIt_AC034` |
+| AC-035 | T-08 | `UpdateDeleteRaceTests.UpdateAndDelete_Concurrent_ReturnDocumentedCodes_AC035`; `UpdateDeleteRaceTests.UpdateContact_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC035` |
+| AC-036 | T-07 | `DeleteContactTests.DeleteContact_ConcurrentSameId_ExactlyOne204Rest404_AC036` |
 | AC-037 | T-03, T-04, T-05, T-07, T-09 | Via `ProblemAssert.IsProblemAsync` in every PUT/DELETE error test (400, 404, 409, 500) |
-| AC-038 | T-05 (guard), T-07 (guard) | |
-| AC-039 | T-01, T-03, D-01 (convention record) | |
-| NFR-001 | T-09 | |
-| NFR-002 | T-02 | |
-| NFR-003 | all tasks (reviewer), T-05 (guard) | **Reviewer inspection** of logging code on every task; automated guard in T-05 |
-| NFR-004 | T-03 | |
+| AC-038 | T-05 (guard), T-07 (guard) | `ErrorHandlingTests.DeleteContact_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC038`; `DeleteRejectedByDatabaseTests.DeleteContact_WhenDatabaseRejects_Returns500AndContactStillExists_AC038`; `ErrorHandlingTests.UpdateContact_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC038`; `NonUniqueUpdateConstraintFailureTests.UpdateContact_WhenNonUniqueConstraintFails_Returns500AndLeavesContactUnchanged_AC038` |
+| AC-039 | T-01, T-03, D-01 (convention record) | `ContactInputTests.Parse_MissingFirstName_MessageIsRequired_AC039`; `ContactInputTests.Parse_ValidationMessages_FollowStyle_AC039`; `CreateContactValidationTests.CreateContact_ValidationMessages_FollowStyle_AC039`; `ListContactsPagingTests.ListContacts_ValidationMessages_FollowStyle_AC039`; `ListQueryTests.Parse_InvalidPage_MessageIsSentenceCaseWithoutName_AC039`; `ListQueryTests.Parse_SearchTooLong_MessageIsSentenceCaseWithoutName_AC039`; `UpdateContactValidationTests.UpdateContact_ValidationMessages_FollowStyle_AC039` |
+| NFR-001 | T-09 | `OpenApiTests.OpenApi_DeleteContact_DocumentsStatusCodes204_404_NFR001`; `OpenApiTests.OpenApi_UpdateAndDelete_ErrorResponsesAreProblemJson_NFR001`; `OpenApiTests.OpenApi_UpdateAndDelete_HaveOperationIdsAndSummaries_NFR001`; `OpenApiTests.OpenApi_UpdateContact_DocumentsStatusCodes200_400_404_409_NFR001` |
+| NFR-002 | T-02 | `UpdateContactTests.UpdateContact_Json_IsCamelCaseWithNullsAndUtcOffsets_NFR002` |
+| NFR-003 | all tasks (reviewer), T-05 (guard) | **Reviewer inspection** of logging code on every task; automated guard in T-05: `UpdateContactConflictTests.UpdateContact_DuplicateEmail_EmailNotLoggedAtInformationOrAbove_NFR003` |
+| NFR-004 | T-03 | `ContactInputTests.Parse_UpdateAndCreateRequests_ProduceIdenticalErrors_NFR004`; `UpdateContactValidationTests.UpdateContact_SameInvalidPayload_SameErrorsAsCreate_NFR004` |

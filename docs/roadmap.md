@@ -5,8 +5,8 @@ Suggested order. Each line becomes one `/spec`. Keep specs small; the planner ma
 | # | Spec | Side | Notes |
 |---|---|---|---|
 | 001 | Contacts API: create, get by id, list (paging + search by name/email) | API | Establishes DbContext, first migration, ProblemDetails, test factory |
-| 002 | Contacts API: update and delete | API | Decide what deleting a contact does to its to-dos (ask in /spec) |
-| 003 | To-dos API: CRUD, optional contact link, due date, complete/reopen | API | Includes `GET /api/contacts/{id}/todos` |
+| 002 | Contacts API: update and delete | API | Done (spec 002). Decision: **Unlink**. Deleting a contact keeps its to-dos and sets their `ContactId` to null |
+| 003 | To-dos API: CRUD, optional contact link, due date, complete/reopen | API | Includes `GET /api/contacts/{id}/todos`. Must enforce spec 002's Unlink rule: FK `OnDelete(SetNull)` applied atomically with the delete (contact delete uses `ExecuteDeleteAsync`, which bypasses EF client-side cascade, so the database must do it), with ACs per spec 002 "Decision" |
 | 004 | Web: contacts list + create form | Web | Establishes api client, MSW setup, providers, routing |
 | 005 | Web: contact detail, edit, delete, and that contact's to-dos | Web | |
 | 006 | Web: to-dos page with filters (open / done / overdue) | Web | |
