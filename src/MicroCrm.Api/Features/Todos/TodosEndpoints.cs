@@ -71,21 +71,25 @@ public static class TodosEndpoints
             : TypedResults.Ok(TodoResponse.From(todo));
     }
 
-    private static async Task<Ok<TodoResponse>> UpdateTodo(
+    private static async Task<Results<Ok<TodoResponse>, ValidationProblem>> UpdateTodo(
         Guid id,
         UpdateTodoRequest request,
         AppDbContext db,
         TimeProvider time,
         CancellationToken ct)
     {
-        var (input, _) = TodoInput.Parse(request);
+        var (input, errors) = TodoInput.Parse(request);
+        if (input is null)
+        {
+            return TypedResults.ValidationProblem(errors!);
+        }
 
         var todo = await db.Todos.FirstAsync(t => t.Id == id, ct);
 
-        todo.Title = input!.Title;
-        todo.Notes = input!.Notes;
-        todo.DueDate = input!.DueDate;
-        todo.ContactId = input!.ContactId;
+        todo.Title = input.Title;
+        todo.Notes = input.Notes;
+        todo.DueDate = input.DueDate;
+        todo.ContactId = input.ContactId;
         todo.UpdatedAt = time.GetUtcNow();
 
         await db.SaveChangesAsync(ct);

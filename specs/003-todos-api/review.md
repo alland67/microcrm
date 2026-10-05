@@ -273,3 +273,43 @@
 - **`input!` used 4 times.** A single `!` is enough (proven by building with the other three removed: 0 warnings), but T-06 replaces this with the `if (input is null)` branch. No action needed.
 - **T-04 Nit closed.** `CreateTodoContactLinkTests.cs:96,137` changes comments only, and no assertion or code line changed. The test count went 399 → 419 (+20 new, 0 removed).
 - `MicroCrm.Api.http` gained one PUT sample (a dev convenience, plan file table).
+
+## T-06: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 457/457 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; `npm --prefix web run lint` exit 0, no web changes) · typecheck pass (`npm --prefix web run typecheck` exit 0, no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-010 (update) | `UpdateTodo_WithoutTitle_Returns400Required_AC010` (omitted / null / "" / whitespace) | yes: exact key set, exact `Required.`, and the to-do is unchanged (fresh-client GET body plus raw row, column by column). |
+| AC-011 (update) | `UpdateTodo_FieldOverMax_Returns400_AC011`, `UpdateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011` | yes: 201/4001 with exact messages; notes-only row pins "an entry for each offending field" (only `notes`). |
+| AC-012 (update) | `UpdateTodo_InvalidDueDate_Returns400_AC012` (9 rows: all 5 spec examples plus 3-digit year, 5-digit year, full-width digits, slashes) | yes: exact message, unchanged row. |
+| AC-013 (update) | `UpdateTodo_MalformedContactId_Returns400_AC013` (`abc`, `123`, truncated GUID) | yes: exact message, unchanged row (the seeded link survives). |
+| AC-014 (update) | `UpdateTodo_MultipleInvalidFields_ReportsAll_AC014` | yes: all 4 keys and messages. Killed by `take1` (6 fail). |
+| AC-015 (update) | `UpdateTodo_MalformedBody_Returns400Problem_AC015` (7 rows incl. `{"title":"x","contactId":7}`), guard | yes: passes at RED as planned; `ThrowOnBadRequest = true` mutant fails all 7. Asserts no `errors` and an unchanged row. |
+| AC-027 | `UpdateTodo_InvalidBodyToUnknownId_Returns400_AC027` | yes: 400 with all 4 keys, row count unchanged, no row for the id. Killed by `branch_after_lookup` (1 fail, the only test that distinguishes order). |
+| AC-074 (update) | `UpdateTodo_ValidationMessages_FollowStyle_AC074` | yes: `AssertValidationMessageStyle` plus exact messages for all 5 messages (incl. `Required.`). |
+| NFR-005 | `Parse_UpdateAndCreateRequests_ProduceIdenticalErrors_NFR005` (unit, 6 rows, guard), `UpdateTodo_SameInvalidPayload_SameErrorsAsCreate_NFR005` (integration, 4 rows) | yes: key-by-key and message-by-message. Diverging update-overload mutants are killed by both (see below). |
+| AC-030 (T-05 Nit) | `UpdateTodo_LeavesOtherTodosAndContactsUnchanged_AC030` now snapshots `otherLinkedToB` | yes: `touch_B_updated` (bump UpdatedAt on the new contact's other to-dos), 0 fails at T-05, now fails 1; `touch_B_title` fails 1. Nit closed. |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| Mutant | Tests failed |
+|---|---|
+| `no_branch` (the T-05 shape: lookup, then throw on null input) | 25 (exactly the RED set) |
+| `branch_after_lookup` (validation after `FirstAsync`) | 1 (AC-027) |
+| `take1` (only the first error returned on PUT) | 6 |
+| `upd_no_contact` / `upd_no_notes` / `upd_no_date` (update overload drops a field) | 21 / 19 / 28 (incl. the unit NFR-005 guard each time) |
+| `upd_msgs` (update overload rewrites messages) | 31 (incl. the unit NFR-005 guard) |
+| `invalid_touch_notes` (on invalid input, null the stored notes and save, then 400) | 24 |
+| `invalid_touch_updated` (on invalid input, bump stored UpdatedAt, then 400) | 24 |
+| `touch_B_title` / `touch_B_updated` | 1 / 1 |
+| `ThrowOnBadRequest = true` (AC-015 guard, class-filtered run) | 7 of 7 AC-015 rows |
+
+**Findings:** none.
+
+**Notes:**
+- **Minimality is clean.** The only production change is in `UpdateTodo`: `var (input, errors) = TodoInput.Parse(request); if (input is null) return TypedResults.ValidationProblem(errors!);` before `FirstAsync`, the return type widened to `Results<Ok<TodoResponse>, ValidationProblem>` (demanded by the 400 path), and the four `input!` removed. Identical in shape to create (spec 001 T-06 accepted pattern). Still absent: a null→404 branch (`FirstAsync` stays, T-07), a 787 catch (T-07), `IsModified` on ContactId (T-13), a `DbUpdateConcurrencyException` catch (T-14), `.WithName`/`.WithSummary`/`Produces*` (T-15), and any `Contacts` pre-check / `AnyAsync` in `Features/Todos/` (ADR-0008). No change under `Data/`, so no migration after T-01. `TodoInput.cs` is unchanged.
+- **T-07 can still fail first.** By reading the handler (unchanged after the branch): a valid PUT to an unknown GUID hits `FirstAsync` and throws → 500 (AC-026/AC-028 expect 404); a valid PUT linking an unknown contact reaches `SaveChangesAsync` with no catch → unhandled 787 → 500 (AC-029 expects 400). The AC-028 shape (unknown contact + unknown to-do) is also 500 today. AC-026 non-GUID and both AC-073 tests remain the planned guards.
+- **No test removed or weakened.** 419 → 457 = +38: 32 in `UpdateTodoValidationTests` (25 red + 7 AC-015 guard rows) and 6 unit NFR-005 rows. The only edit to an existing test is the AC-030 snapshot growing by one URL.
+- `UpdateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011` is not in the tasks.md test list; it's an extra, justified by AC-011's "each offending field" wording. Add it to the Traceability table at `/document`.
+- The seeded to-do is linked, has notes and a due date, so the column-by-column unchanged check is meaningful for every field. The fixed fake clock means a bare `UpdatedAt = now` touch on invalid input would be value-equivalent (not observable); only a changed value is a real mutant, and that one is killed.

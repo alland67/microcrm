@@ -202,4 +202,36 @@ public sealed class TodoInputTests
         Assert.Equal([DateMessage], errors["dueDate"]);
         Assert.Equal([GuidMessage], errors["contactId"]);
     }
+
+    public static TheoryData<string?, string?, string?, string?> InvalidPayloads => new()
+    {
+        { null, null, null, null },
+        { "  ", null, null, null },
+        { "Fine", new string('b', 4001), null, null },
+        { new string('a', 201), null, "2026-02-30", null },
+        { "Fine", null, "05/10/2026", "abc" },
+        { "  ", new string('b', 4001), "nope", "abc" },
+    };
+
+    // Guard: create and update share one parse core.
+    [Theory]
+    [MemberData(nameof(InvalidPayloads))]
+    public void Parse_UpdateAndCreateRequests_ProduceIdenticalErrors_NFR005(
+        string? title, string? notes, string? dueDate, string? contactId)
+    {
+        var (createInput, createErrors) = TodoInput.Parse(new CreateTodoRequest(title, notes, dueDate, contactId));
+        var (updateInput, updateErrors) = TodoInput.Parse(new UpdateTodoRequest(title, notes, dueDate, contactId));
+
+        Assert.Null(createInput);
+        Assert.Null(updateInput);
+        Assert.NotNull(createErrors);
+        Assert.NotNull(updateErrors);
+        Assert.Equal(
+            createErrors.Keys.Order(StringComparer.Ordinal).ToArray(),
+            updateErrors.Keys.Order(StringComparer.Ordinal).ToArray());
+        foreach (var (key, messages) in createErrors)
+        {
+            Assert.Equal(messages, updateErrors[key]);
+        }
+    }
 }

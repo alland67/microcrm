@@ -285,7 +285,11 @@ public sealed class UpdateTodoTests(ApiFactory factory) : IClassFixture<ApiFacto
         var target = await CreateTodoAsync(client, "Target", contactA, "t", "2026-10-05");
         var otherLinked = await CreateTodoAsync(client, "Other linked", contactA, "o", "2026-11-05");
         var otherUnlinked = await CreateTodoAsync(client, "Other unlinked");
-        var todoUrls = new[] { $"/api/todos/{otherLinked}", $"/api/todos/{otherUnlinked}" };
+        var otherLinkedToB = await CreateTodoAsync(client, "Other linked to B", contactB, "b", "2026-12-05");
+        var todoUrls = new[]
+        {
+            $"/api/todos/{otherLinked}", $"/api/todos/{otherUnlinked}", $"/api/todos/{otherLinkedToB}",
+        };
         var contactUrls = new[] { $"/api/contacts/{contactA}", $"/api/contacts/{contactB}" };
         var urls = todoUrls.Concat(contactUrls).ToArray();
         var snapshot = new List<string>();

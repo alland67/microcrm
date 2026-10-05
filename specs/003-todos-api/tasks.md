@@ -238,7 +238,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-06: Update rejects invalid fields (same errors as create)
+- [x] T-06: Update rejects invalid fields (same errors as create). Done: PUT validation branch before lookup, shared Parse core; AC-030 snapshot strengthened (T-05 nit); review APPROVE
   - **ACs:** AC-010, AC-011, AC-012, AC-013, AC-014, AC-015 (update), AC-027, AC-074 (update), NFR-005
   - **Depends on:** T-05
   - **Tests:**
