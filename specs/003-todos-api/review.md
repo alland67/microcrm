@@ -390,3 +390,39 @@
 - **The AC-073 merge is acceptable.** tasks.md names `CompleteTodo_WhenDatabaseFails_..._AC073` and `ReopenTodo_WhenDatabaseFails_..._AC073`, and the single Theory over `complete`/`reopen` gives one result row per action with the same assertions. The cost is only that the Traceability table now needs the Theory name. The PUT rename (`UpdateTodo_NonGuidId_Returns404Problem_AC026`) also needs updating there. Route both to `/document`.
 - **No test removed or weakened.** 464 → 484 = +20 (4 unit, 13 in `CompleteReopenTodoTests`, 3 in `TodoErrorHandlingTests`). The only edit to an existing test is the T-07 Should-fix: the PUT non-GUID theory now uses `ProblemAssert.IsProblemAsync` (strengthened). That closes the T-07 Should-fix.
 - The RED claim is consistent: before this diff there was no route, so the GUID AC-036 rows passed as guards and everything else expecting 200/500 got 404.
+
+## T-09: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 494/494 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; `npm --prefix web run lint` exit 0, no web changes) · typecheck pass (`npm --prefix web run typecheck` exit 0, no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-038 (get) | `DeleteTodo_Existing_Returns204WithEmptyBody_AC038`; `DeleteTodo_ThenGet_Returns404OnNewConnections_AC038` | yes: 204 with an empty body; a fresh client's GET goes through `ProblemAssert` 404; the raw row count goes 1 → 0. The list/`totalCount` half belongs to T-10 (AC-038 (list)). |
+| AC-039 | `DeleteTodo_UnknownOrAlreadyDeleted_Returns404Problem_AC039`; `DeleteTodo_NonGuidId_Returns404AndDeletesNothing_AC039` (`not-a-guid`, `123`) | yes: unknown and already-deleted both go through `ProblemAssert`. Non-GUID rows assert problem 404, an unchanged total, and that a survivor still exists. Killed by `always_204` and `no_filter`, and by `no_guid_constraint` (route `/{id}` → 400 binding failure, fails both non-GUID rows). |
+| AC-040 | `DeleteTodo_LeavesContactAndOtherTodosUnchanged_AC040` | yes: the linked contact, a sibling linked to the same contact, and an unrelated to-do are compared by API body and raw row, with the clock advanced 10 min; total − 1. Killed by `no_filter`. |
+| AC-041 | `UpdateCompleteReopen_AfterDelete_Return404AndDoNotRecreate_AC041` | yes: PUT, complete and reopen each give `ProblemAssert` 404; afterwards the row count is 0 and the total is unchanged (no upsert). |
+| AC-071 | `DeleteTodo_ConcurrentSameId_ExactlyOne204Rest404_AC071` | yes, with a caveat (see Should-fix). The correct code passed 10/10 isolated runs plus every full-suite run, so it's deterministic for a correct implementation. It's also genuinely concurrent: 10 clients wait on an all-ready latch, then a shared gate. |
+| AC-073 (delete) | `DeleteTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (drop table); `DeleteTodoRejectedByDatabaseTests.DeleteTodo_WhenDatabaseRejects_Returns500AndTodoStillExists_AC073` (BEFORE DELETE RAISE(ABORT), own fixture, trigger dropped in `finally`) | yes: safe 500 with no leaked internals; the snapshot of all to-dos and contacts plus the raw row are unchanged. Both tests kill `catch_all_404` and `catch_sqlite_404`. |
+
+**Mutation (scratch copy, full backend suite per mutant unless noted):**
+| Mutant | Tests failed |
+|---|---|
+| `load_remove` (`FirstOrDefaultAsync` + `Remove` + `SaveChangesAsync`) | AC-071 only: 9 of 11 full-suite runs, 10 of 10 isolated (`--filter-method "*AC071*"`) runs |
+| `precheck_any` (`AnyAsync` → 404, then `ExecuteDeleteAsync`, always 204) | 1 (AC-071), 2 of 2 runs |
+| `always_204` (ignore the row count) | 2 (AC-039 already-deleted, AC-071) |
+| `no_filter` (`db.Todos.ExecuteDeleteAsync`) | 2 (AC-039, AC-040) |
+| `catch_all_404` / `catch_sqlite_404` (swallow the failure as 0 rows) | 2 / 2 (both AC-073 delete tests) |
+| `no_guid_constraint` (`MapDelete("/{id}")`) | 2 (AC-039 non-GUID rows) |
+
+**Findings:**
+- **Should-fix (test-writer, can be deferred to T-14)** `tests/MicroCrm.Api.Tests/Integration/Todos/DeleteTodoTests.cs:155`: "never load-then-remove" (plan section 6, tasks.md line 29) is pinned only by the probabilistic AC-071 race. Run alone it kills `load_remove` every time (10/10). Under the parallel full suite it missed 2 of 11 runs: thread-pool contention sometimes serialises the 10 requests, so every loser loads after the winner commits and gets a legitimate 404. The test mirrors spec 002's `DeleteContact_ConcurrentSameId_..._AC036` exactly as tasks.md prescribes, and the production code is correct by inspection, so this isn't Blocking. Fixed means: a deterministic pin that uses the T-14 interceptor technique (plan section 6). A test-local `SaveChangesInterceptor` deletes the to-do through a separate connection in `SavingChangesAsync`, then `DELETE` must still give 204 or 404 and never 500. The correct handler never calls `SaveChanges`, so the interceptor never fires; `load_remove` would throw `DbUpdateConcurrencyException` → 500 every time. Alternatively, a `DbCommandInterceptor` could assert that no `SELECT` precedes the `DELETE`.
+- **Nit (test-writer)** `DeleteTodoTests.cs:83`: the comment calls the AC-039 non-GUID rows a "Guard" that already passes because "no route matches". At RED they failed with 405 (see Notes), so it should say that they fail with 405 until DELETE is mapped. The tasks.md T-09 **Guards** line has the same inaccuracy; route that to `/document`.
+- **Nit (test-writer)** `DeleteTodoTests.cs:149`: the AC-041 follow-up GET checks only `HttpStatusCode.NotFound`, not `ProblemAssert`. It's a supplementary "not recreated" check, backed by the raw row count, and the GET 404 problem body is already pinned in the AC-038 test. No action is needed unless the test is touched again.
+
+**Notes:**
+- **The 405 RED on the non-GUID rows is confirmed, and the explanation is correct.** A scratch probe with `MapDelete` removed returned `DELETE /api/todos/not-a-guid` → 405 `Allow: GET, PUT` (the same for `123` and for a valid GUID), while `DELETE /api/todos/not-a-guid/x` → 404. Endpoint routing's DFA matches the path to the `{id}` parameter node, and `HttpMethodMatcherPolicy` picks its 405 endpoint before route constraints are checked on the candidates, so the `:guid` constraint never gets a say. With `MapDelete` in place, the same requests give 404 problem+json, and `no_guid_constraint` proves the constraint matters. So these rows were red for the right reason (DELETE not mapped), and they're sound tests after GREEN. A framework side-effect (`PATCH /api/todos/not-a-guid` → 405) is pre-existing and outside AC-039.
+- **The delete is never load-then-remove.** The handler is the plan's single `db.Todos.Where(t => t.Id == id).ExecuteDeleteAsync(ct)`, 0 → `TypedResults.Problem(404)`, otherwise `NoContent`. Its return type is `Results<NoContent, ProblemHttpResult>`, as plan line 152 specifies.
+- **Minimality is clean, with nothing from T-10+ added.** `git diff --stat HEAD -- src` shows only `TodosEndpoints.cs` (+13) and `MicroCrm.Api.http` (+4). There's no list route, no `.WithName`/`.WithSummary`/`Produces*` (T-15), no `DbUpdateConcurrencyException` catch (T-14), no `IsModified` (T-13), no `AnyAsync`, and no new migration.
+- **The T-08 Should-fix is closed.** `CompleteOrReopen_UnknownOrNonGuidId_Returns404_AC036` now runs `ProblemAssert.IsProblemAsync(response, 404)` on every row, and the comment correctly attributes the RED-time 404 to the route (unknown GUID) or to status code pages (non-GUID). That's a strengthening.
+- **No test removed or weakened.** 484 → 494 = +10 (8 in `DeleteTodoTests`, 1 in `TodoErrorHandlingTests`, 1 in `DeleteTodoRejectedByDatabaseTests`), which matches the 10 RED failures. The trigger test's hand-rolled problem/no-leak assertions match the existing `UpdateTodoNonForeignKeyFailureTests` and `CreateTodo_WhenNonForeignKeyConstraintFails...` style.

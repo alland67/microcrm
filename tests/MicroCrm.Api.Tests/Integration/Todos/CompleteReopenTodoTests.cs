@@ -191,7 +191,8 @@ public sealed class CompleteReopenTodoTests(ApiFactory factory) : IClassFixture<
         return data;
     }
 
-    // Guard at RED: no route exists yet, so 404 already; the problem+json body is only asserted after GREEN.
+    // Guard at RED: the 404 problem+json already comes from the complete/reopen routes (unknown GUID) or from
+    // status code pages (non-GUID id, no route match).
     [Theory]
     [MemberData(nameof(UnknownIds))]
     public async Task CompleteOrReopen_UnknownOrNonGuidId_Returns404_AC036(string action, string id)
@@ -203,10 +204,7 @@ public sealed class CompleteReopenTodoTests(ApiFactory factory) : IClassFixture<
         var response = await client.PostAsync($"/api/todos/{id}/{action}", null, Ct);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        if (Guid.TryParse(id, out _))
-        {
-            using var problem = await ProblemAssert.IsProblemAsync(response, 404);
-        }
+        using var problem = await ProblemAssert.IsProblemAsync(response, 404);
 
         Assert.Equal(before, await TodoCountAsync());
     }

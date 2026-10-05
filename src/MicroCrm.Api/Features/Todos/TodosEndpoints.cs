@@ -16,6 +16,7 @@ public static class TodosEndpoints
         group.MapPut("/{id:guid}", UpdateTodo);
         group.MapPost("/{id:guid}/complete", CompleteTodo);
         group.MapPost("/{id:guid}/reopen", ReopenTodo);
+        group.MapDelete("/{id:guid}", DeleteTodo);
 
         return app;
     }
@@ -140,6 +141,18 @@ public static class TodosEndpoints
         }
 
         return TypedResults.Ok(TodoResponse.From(todo));
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteTodo(
+        Guid id,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var deleted = await db.Todos.Where(t => t.Id == id).ExecuteDeleteAsync(ct);
+
+        return deleted == 0
+            ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound)
+            : TypedResults.NoContent();
     }
 
     private static ValidationProblem UnknownContact() =>

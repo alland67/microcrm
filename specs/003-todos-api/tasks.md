@@ -332,7 +332,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-09: Delete a to-do
+- [x] T-09: Delete a to-do. Done: DELETE via single ExecuteDeleteAsync, 0 rows -> 404; review APPROVE (should-fix: deterministic load-then-remove test via SavingChanges interceptor, carried to T-14; nits: stale guard comment, AC-041 GET without ProblemAssert)
   - **ACs:** AC-038 (get), AC-039, AC-040, AC-041, AC-071, AC-073 (delete)
   - **Depends on:** T-08
   - **Tests:**

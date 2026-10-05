@@ -65,3 +65,7 @@ POST {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}/co
 ###
 
 POST {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}/reopen
+
+###
+
+DELETE {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}

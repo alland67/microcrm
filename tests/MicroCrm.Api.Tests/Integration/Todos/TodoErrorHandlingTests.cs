@@ -77,6 +77,17 @@ public sealed class TodoErrorHandlingTests(ApiFactory factory) : IClassFixture<A
 
         await AssertSafe500Async(response);
     }
+
+    [Fact]
+    public async Task DeleteTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073()
+    {
+        await BreakDatabaseAsync();
+        using var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync($"/api/todos/{Guid.CreateVersion7()}", Ct);
+
+        await AssertSafe500Async(response);
+    }
 }
 
 // Own fixture: installs a BEFORE INSERT trigger on the shared in-memory database and drops it in finally.
@@ -248,5 +259,69 @@ public sealed class UpdateTodoNonForeignKeyFailureTests(ApiFactory factory) : IC
         Assert.Equal(rowBefore, rowAfter);
         Assert.Equal(0L, Convert.ToInt64(rowAfter!["IsDone"]));
         Assert.Null(rowAfter["CompletedAt"]);
+    }
+}
+
+// Own fixture: installs a BEFORE DELETE trigger on the shared in-memory database and drops it in finally.
+public sealed class DeleteTodoRejectedByDatabaseTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private async Task<string> SnapshotAsync()
+    {
+        await using var connection = await TodoStoreTests.OpenAsync(factory.ConnectionString);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT 'T|' || Id || '|' || Title || '|' || ifnull(ContactId, '-') || '|' || UpdatedAt FROM Todos " +
+            "UNION ALL SELECT 'C|' || Id FROM Contacts ORDER BY 1";
+        await using var reader = await command.ExecuteReaderAsync(Ct);
+        var lines = new List<string>();
+        while (await reader.ReadAsync(Ct))
+        {
+            lines.Add(reader.GetString(0));
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    // AC-073: a DELETE rejected by the database is a safe 500 and the to-do still exists.
+    [Fact]
+    public async Task DeleteTodo_WhenDatabaseRejects_Returns500AndTodoStillExists_AC073()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var contactId = await TodoStoreTests.CreateContactAsync(client, "Trigger", $"trigger.del.{Guid.NewGuid():N}@example.com");
+        var created = await client.PostAsJsonAsync("/api/todos", new { title = "Pre-existing", contactId }, Ct);
+        Assert.Equal(System.Net.HttpStatusCode.Created, created.StatusCode);
+        using var createdDoc = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct));
+        var id = createdDoc.RootElement.GetProperty("id").GetGuid();
+        var before = await SnapshotAsync();
+        var rowBefore = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
+
+        await factory.ExecuteSqlAsync(
+            "CREATE TRIGGER trg_fail_delete_todo BEFORE DELETE ON Todos BEGIN SELECT RAISE(ABORT, 'x'); END");
+        HttpResponseMessage response;
+        string body;
+        try
+        {
+            response = await client.DeleteAsync($"/api/todos/{id}", Ct);
+            body = await response.Content.ReadAsStringAsync(Ct);
+        }
+        finally
+        {
+            await factory.ExecuteSqlAsync("DROP TRIGGER IF EXISTS trg_fail_delete_todo");
+        }
+
+        Assert.Equal(500, (int)response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal(500, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.DoesNotContain("Sqlite", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("RAISE", body, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(before, await SnapshotAsync());
+        Assert.Equal(rowBefore, await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id));
     }
 }
