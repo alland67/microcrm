@@ -37,11 +37,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 
-    /// <summary>Deletes all contacts on a fresh connection so a test starts from a known state.</summary>
+    /// <summary>Deletes all to-dos and then all contacts on fresh connections so a test starts from a known state.</summary>
     public async Task ResetAsync()
     {
         // Force the host to start and migrations to run, so the table exists.
         _ = Server;
+        await ExecuteSqlAsync("DELETE FROM Todos");
         await ExecuteSqlAsync("DELETE FROM Contacts");
     }
 

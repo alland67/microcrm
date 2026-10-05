@@ -1,0 +1,56 @@
+using MicroCrm.Api.Data;
+
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
+
+namespace MicroCrm.Api.Features.Todos;
+
+public static class TodosEndpoints
+{
+    public static IEndpointRouteBuilder MapTodosEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/api/todos");
+
+        group.MapPost(string.Empty, CreateTodo);
+        group.MapGet("/{id:guid}", GetTodoById);
+
+        return app;
+    }
+
+    private static async Task<Created<TodoResponse>> CreateTodo(
+        CreateTodoRequest request,
+        AppDbContext db,
+        TimeProvider time,
+        CancellationToken ct)
+    {
+        var (input, _) = TodoInput.Parse(request);
+
+        var now = time.GetUtcNow();
+        var todo = new Todo
+        {
+            Id = Guid.CreateVersion7(now),
+            Title = input!.Title,
+            Notes = input.Notes,
+            DueDate = input.DueDate,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        db.Todos.Add(todo);
+        await db.SaveChangesAsync(ct);
+
+        return TypedResults.Created($"/api/todos/{todo.Id}", TodoResponse.From(todo));
+    }
+
+    private static async Task<Results<Ok<TodoResponse>, ProblemHttpResult>> GetTodoById(
+        Guid id,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var todo = await db.Todos.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct);
+
+        return todo is null
+            ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound)
+            : TypedResults.Ok(TodoResponse.From(todo));
+    }
+}

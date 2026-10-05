@@ -84,7 +84,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [~] T-02: Create a to-do and get it by id
+- [x] T-02: Create a to-do and get it by id. Done: POST + GET by id, TodoInput core, relative Location; review APPROVE after 1 pre-review fix (absolute Host-based Location replaced) (1 nit: TrimToNull duplicated)
   - **ACs:** AC-001, AC-002, AC-003, AC-004, AC-005, AC-006, AC-009, AC-018, AC-019, NFR-002, NFR-004 (guard), AC-073 (create, get), AC-072 (404)
   - **Depends on:** T-01
   - **Tests:**

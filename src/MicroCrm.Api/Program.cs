@@ -1,5 +1,6 @@
 using MicroCrm.Api.Data;
 using MicroCrm.Api.Features.Contacts;
+using MicroCrm.Api.Features.Todos;
 
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapContactsEndpoints();
+app.MapTodosEndpoints();
 
 app.Run();
 
