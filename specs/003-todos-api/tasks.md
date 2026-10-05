@@ -399,7 +399,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-11: List filters: status (open, done, overdue) and contact
+- [x] T-11: List filters: status (open, done, overdue) and contact. Done: status (trimmed, case-insensitive exact match) and contactId filters, overdue from UTC date of TimeProvider; review APPROVE after 1 fix cycle (Enum.TryParse accepted comma lists, replaced)
   - **ACs:** AC-047, AC-048, AC-049, AC-050, AC-051, AC-052, AC-053, AC-054, AC-055, AC-056 (all parameters), AC-068 (filter), AC-074 (status, `contactId`)
   - **Depends on:** T-10
   - **Tests:**

@@ -491,3 +491,68 @@
 - Production is unchanged (`TodosEndpoints.cs:84-88`). The original AC-044 test is untouched; this is a pure addition (536 → 537).
 - The survival odds for either mutant are 1/8! per run. The millisecond alignment removes the only way two ids could straddle a millisecond and fall back into `createdAt` order.
 - Nit 2 (status/contactId binding) and the `/document` note on the `Guid.CompareTo` wording stand as before. Neither blocks.
+
+## T-11: 2026-10-05: CHANGES_REQUESTED
+
+**Checks:** tests pass, backend 577/577, web 1/1 · lint pass (`dotnet format ... --verify-no-changes` exit 0, web lint exit 0) · typecheck pass (no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-047 | `ListTodos_StatusOpen_ReturnsOnlyOpenIncludingOverdue_AC047` | yes: includes the overdue, today, tomorrow and undated open rows. Killed by `open_all`. |
+| AC-048 | `ListTodos_StatusDone_ReturnsOnlyDone_AC048` | yes |
+| AC-049 | `ListTodos_StatusOverdue_ReturnsOnlyOpenPastDue_AC049` | yes: seeds yesterday-open, today-open, tomorrow-open, undated-open, yesterday-done and undated-done. Killed by `le` (`<=`), `overdue_no_isdone`, `today_minus1` and `today_wall` (`DateTime.UtcNow`). |
+| AC-050 | `OverdueClockTests.ListTodos_Overdue_IncludesTodoDueYesterdayAfterUtcMidnight_AC050` | yes: own fixture, 23:59:59Z, then +1 s, with a date assertion on the clock. |
+| AC-051 | `Parse_Status_TrimmedCaseInsensitiveBlankMeansNone_AC051` (10 rows); `ListTodos_StatusBlankOrDifferentCase_AC051` (5 rows) | yes. Killed by `case_sensitive` and `no_trim_status`. |
+| AC-052 | `Parse_UnknownStatus_ReturnsOneOfMessage_AC052` (4 rows); `ListTodos_StatusUnknown_Returns400_AC052` (3 rows) | **no**: comma-separated lists of valid names are accepted with 200. See Blocking finding 1. |
+| AC-053 | `Parse_ContactId_GuidOrBlank_AC053`; `ListTodos_ContactIdFilter_ReturnsOnlyThatContactsTodos_AC053` | yes: covers the known contact, the other contact, an unknown GUID (empty page, totalCount 0), blank, whitespace and padded values. Killed by `no_contact` and `no_trim_cid`. |
+| AC-054 | `Parse_MalformedContactId_ReturnsGuidMessage_AC054`; `ListTodos_MalformedContactId_Returns400_AC054` | yes |
+| AC-055 | `ListTodos_CombinedFilters_MatchAllOrderedAndPaged_AC055` | yes: overdue + contact + page 1/2 of size 2, with decoys for each filter. Killed by `count_unfiltered`. |
+| AC-056 | `Parse_AllInvalid_ReportsEveryParameter_AC056`; `ListTodos_AllQueryParametersInvalid_ReportsAll_AC056` | yes: the exact key set (through `ProblemAssert`) and every message. Killed by `status_shortcircuit` (15 tests fail). |
+| AC-068 (filter) | `ListTodos_ContactIdOfDeletedContact_ExcludesFormerTodos_AC068` | yes |
+| AC-074 (status, contactId) | `ListTodos_FilterMessages_FollowStyle_AC074` | yes |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| Mutant | Tests failed |
+|---|---|
+| `le` (`DueDate <= today`) / `today_minus1` / `today_wall` (`DateTime.UtcNow`) | 4 / 4 / 4 |
+| `overdue_no_isdone` / `open_all` / `no_contact` / `count_unfiltered` | 3 / 2 / 3 / 9 |
+| `case_sensitive` / `no_trim_status` / `no_trim_cid` / `no_inttry` | 13 / 2 / 2 / 2 |
+| `status_shortcircuit` (paging-only null check) | 15 |
+| `no_notnull` (drop `DueDate != null`) | 0, equivalent: SQL `NULL < @today` is not true. It's plan-prescribed, so this is a note only. |
+| `no_isdefined` | **0**: only reachable through the comma-list path (`done,overdue` → 3). See finding 1. |
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Blocking | test-writer, then implementer | `src/MicroCrm.Api/Features/Todos/TodoListQuery.cs:19-21`; `tests/MicroCrm.Api.Tests/Unit/Todos/TodoListQueryTests.cs:72-76` | `Enum.TryParse` accepts comma-separated name lists even for a non-`[Flags]` enum, and ORs their values. Proven against the real `TodoListQuery.Parse` in scratch: `open,done` → `Done`, `open, overdue` → `Overdue`, `done,done` → `Done`, `Open , Done` → `Done`. Each gives 200 with a silently chosen filter. `done,overdue` (= 3) is rejected only by `IsDefined`. This violates AC-052 ("any other `status` value → 400"). It also deviates from plan.md §8 line 169, which prescribes comparing the trimmed value with `open`/`done`/`overdue` using `StringComparison.OrdinalIgnoreCase`. The `IsDefined` and `int.TryParse` guards patch two known holes in the wrong primitive. That is the T-03 "belt and braces around a framework parse" pattern, and the comma hole slipped through. | **test-writer:** add the rows `open,done`, `open, overdue` and `done,done` to `Parse_UnknownStatus_ReturnsOneOfMessage_AC052`, and at least `open,done` (URL-escaped) to `ListTodos_StatusUnknown_Returns400_AC052`. These fail now with 200 or a non-null query. **implementer:** replace lines 19-21 with the plan form: an `OrdinalIgnoreCase` comparison of the trimmed value against the three words, mapped to `TodoStatus`, with no `Enum.TryParse`, `IsDefined` or `int.TryParse`. A brute force over every BMP char inserted into or replacing a char of each word found 0 differences between the plan form and the current code. Comma lists are the only divergence, so the existing rows (`1`, ASCII-only casing) keep passing. |
+
+**Notes:**
+- **Overdue boundaries are correct and pinned.** Due today is not overdue, and due yesterday is (`le` is killed). A done to-do is never overdue (`overdue_no_isdone` is killed). An undated to-do is never overdue: the explicit `!= null` is equivalent in SQL, and the undated open and undated done rows are asserted absent.
+- **Today really comes from the injected clock as a UTC date.** It is `DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime)` (`TodosEndpoints.cs:107`), exactly as plan §4 says. The wall-clock mutant is killed (the fixture is fixed at 2026-01-02). A `GetLocalNow()` mutant would be equivalent under `FakeTimeProvider` (its LocalTimeZone defaults to UTC), so the code itself is the evidence here, and it is correct.
+- **Filters come before count/order/paging.** `ApplyFilters` runs before `CountAsync` (line 79), with no contact pre-check query. This is ADR-0008 / Q8: an unknown GUID gives an empty page.
+- **Error merging.** Status and contactId errors are added to the `ListQuery.Parse` dictionary (`errors ??= []`), and `paging is null || errors.Count > 0` stops a paging-valid, filter-invalid request (`status_shortcircuit` is killed by 15 tests). The messages match spec line 62 and ADR-0006 exactly.
+- **Minimality.** Nothing from T-12+ appears: no nested `/api/contacts/{id}/todos` route, no `IsModified`, no concurrency catch, no `.WithName`/`.WithSummary`/`Produces*`, and no migration.
+- **The T-10 Nit 2 is closed.** `status`/`contactId` are now load-bearing.
+- **No test removed or weakened.** The diff only adds tests to `TodoListQueryTests.cs`, and the two integration classes are new.
+
+## T-11 fix cycle 1: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 583/583 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; no web changes) · typecheck n.a. (no web changes)
+
+**Finding 1 (Blocking) is closed.**
+- **test-writer:** `open,done`, `open, overdue` and `done,done` were added to `Parse_UnknownStatus_ReturnsOneOfMessage_AC052` and `ListTodos_StatusUnknown_Returns400_AC052`. The integration URL is now built with `Uri.EscapeDataString`. 577 → 583 = +6 rows, and no existing row changed or was removed.
+- **implementer:** `TodoListQuery.cs:48-57` `TryParseStatus` uses `OrdinalIgnoreCase` equality against `open`/`done`/`overdue`, exactly as plan §8 line 169 says. `Enum.TryParse`, `IsDefined` and `int.TryParse` are gone. `TodosEndpoints.cs` is unchanged since the first review.
+
+| Mutant (scratch copy, full backend suite) | Tests failed |
+|---|---|
+| `old_enum` (restore the `Enum.TryParse` + `IsDefined` + `!int.TryParse` form) | 6 (the new comma rows) |
+| `ordinal` (`open` compared case-sensitively) | 2 |
+| `swap_open_done` (`open` → Done) | 4 |
+| `overdue_as_open` | 7 |
+| `startswith` (`StartsWith("open")`) | 7 |
+| `always_true` (`TryParseStatus` returns true) | 16 |
+
+**Notes:**
+- The `no_isdefined` survivor from the first review no longer exists, because the code it mutated was removed.
+- Every other point in the first T-11 review still holds (overdue boundaries, today from the injected clock as a UTC date, error merging, nothing from T-12+). None of it was touched by the fix.

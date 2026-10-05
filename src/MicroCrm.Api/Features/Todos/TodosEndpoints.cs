@@ -63,6 +63,7 @@ public static class TodosEndpoints
 
     private static async Task<Results<Ok<PagedResponse<TodoResponse>>, ValidationProblem>> ListTodos(
         AppDbContext db,
+        TimeProvider time,
         CancellationToken ct,
         string? page = null,
         string? pageSize = null,
@@ -75,7 +76,7 @@ public static class TodosEndpoints
             return TypedResults.ValidationProblem(errors!);
         }
 
-        var todos = db.Todos.AsNoTracking();
+        var todos = ApplyFilters(db.Todos.AsNoTracking(), query, time);
         var totalCount = await todos.CountAsync(ct);
 
         var items = new List<TodoResponse>();
@@ -94,6 +95,23 @@ public static class TodosEndpoints
 
         return TypedResults.Ok(new PagedResponse<TodoResponse>(
             items, query.Paging.Page, query.Paging.PageSize, totalCount));
+    }
+
+    private static IQueryable<Todo> ApplyFilters(IQueryable<Todo> todos, TodoListQuery query, TimeProvider time)
+    {
+        if (query.ContactId is { } contactId)
+        {
+            todos = todos.Where(t => t.ContactId == contactId);
+        }
+
+        var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
+        return query.Status switch
+        {
+            TodoStatus.Open => todos.Where(t => !t.IsDone),
+            TodoStatus.Done => todos.Where(t => t.IsDone),
+            TodoStatus.Overdue => todos.Where(t => !t.IsDone && t.DueDate != null && t.DueDate < today),
+            _ => todos,
+        };
     }
 
     private static async Task<Results<Ok<TodoResponse>, ProblemHttpResult>> GetTodoById(
