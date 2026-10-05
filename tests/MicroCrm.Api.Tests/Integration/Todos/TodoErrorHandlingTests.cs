@@ -40,6 +40,17 @@ public sealed class TodoErrorHandlingTests(ApiFactory factory) : IClassFixture<A
     }
 
     [Fact]
+    public async Task ListTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073()
+    {
+        await BreakDatabaseAsync();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/todos", Ct);
+
+        await AssertSafe500Async(response);
+    }
+
+    [Fact]
     public async Task GetTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073()
     {
         await BreakDatabaseAsync();

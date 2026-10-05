@@ -426,3 +426,68 @@
 - **Minimality is clean, with nothing from T-10+ added.** `git diff --stat HEAD -- src` shows only `TodosEndpoints.cs` (+13) and `MicroCrm.Api.http` (+4). There's no list route, no `.WithName`/`.WithSummary`/`Produces*` (T-15), no `DbUpdateConcurrencyException` catch (T-14), no `IsModified` (T-13), no `AnyAsync`, and no new migration.
 - **The T-08 Should-fix is closed.** `CompleteOrReopen_UnknownOrNonGuidId_Returns404_AC036` now runs `ProblemAssert.IsProblemAsync(response, 404)` on every row, and the comment correctly attributes the RED-time 404 to the route (unknown GUID) or to status code pages (non-GUID). That's a strengthening.
 - **No test removed or weakened.** 484 → 494 = +10 (8 in `DeleteTodoTests`, 1 in `TodoErrorHandlingTests`, 1 in `DeleteTodoRejectedByDatabaseTests`), which matches the 10 RED failures. The trigger test's hand-rolled problem/no-leak assertions match the existing `UpdateTodoNonForeignKeyFailureTests` and `CreateTodo_WhenNonForeignKeyConstraintFails...` style.
+
+## T-10: 2026-10-05: CHANGES_REQUESTED
+
+**Checks:** tests pass, backend 536/536 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; `npm --prefix web run lint` exit 0, no web changes) · typecheck pass (`npm --prefix web run typecheck` exit 0, no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-042 | `Parse_Defaults_Page1PageSize20NoFilters_AC042`; `ListTodos_NoParameters_ReturnsDefaultEnvelope_AC042` | yes: 25 seeded → 20 items, page 1, pageSize 20, totalCount 25, item member set = AC-001. Killed by `count_items`. |
+| AC-043 | `ListTodos_Empty_ReturnsEmptyItemsAndZeroTotal_AC043` | yes (the "none match the filters" half is T-11). |
+| AC-044 | `ListTodos_OrdersByDueDateNullsLastThenCreatedAtThenId_AC044` | **no**: the due-date, nulls-last and id keys are pinned, but the `createdAt` key isn't. See Blocking finding 1. |
+| AC-045 | `ListTodos_PageSlices_EchoPagingAndTotal_AC045`, `..._PageBeyondLast_ReturnsEmptyItems_AC045`, `..._PageSize100_IsAccepted_AC045`, `..._AllPages_ReturnEveryTodoExactlyOnceWithTies_AC045` | yes: slices, echo, totalCount, beyond-last including the `int.MaxValue` overflow rows, 100 accepted with 101 seeded, and exactly-once over 10 full ties. Killed by `skip0`, `no_tryskip`, `take_default`, `echo_page1` and `count_items`. |
+| AC-046 | `Parse_InvalidPagingValues_ReturnSameMessagesAsContacts_AC046` (11 rows); `ListTodos_InvalidPageOrPageSize_Returns400_AC046` (17 rows) | yes: the unit rows compare `errors[parameter]` with `ListQuery.Parse`'s output AND the exact literal. The integration rows go through `ProblemAssert` (exact key set) plus the exact message. |
+| AC-056 (paging) | `ListTodos_InvalidPageAndPageSize_ReportsBoth_AC056` | yes: `ProblemAssert` with exact keys `page`, `pageSize`. |
+| AC-074 (list paging) | `ListTodos_ValidationMessages_FollowStyle_AC074` | yes: style helper plus the exact messages. |
+| AC-020 (list) | `ListTodos_ShowsUpdatedValues_AC020` | yes: a fresh-client list item is raw-equal to GET, and the new due date re-orders it. |
+| AC-038 (list) | `ListTodos_ExcludesDeletedTodo_AC038` | yes: excluded from items and totalCount on a new client. |
+| AC-063 (list) | `ListTodos_AfterContactDelete_ShowsTodosUnlinkedAndOtherwiseUnchanged_AC063` | yes: includes a completed linked to-do. The clock is advanced 2h before the contact delete, and every member except `contactId` is raw-equal before and after. |
+| AC-073 (list) | `TodoErrorHandlingTests.ListTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` | yes: shared `AssertSafe500Async`. |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| Mutant | Tests failed |
+|---|---|
+| `no_created` (drop `.ThenBy(t => t.CreatedAt)`) | **0** |
+| `swap_created_id` (`ThenBy(Id).ThenBy(CreatedAt)`) | **0** |
+| `no_id` / `desc_id` | 1 / 1 (AC-044) |
+| `nulls_first` (`DueDate != null`) / `no_nullkey` | 1 / 1 (AC-044) |
+| `desc_due` / `no_due` | 4 / 4 |
+| `skip0` / `no_tryskip` / `take_default` (20) / `echo_page1` / `count_items` | 3 / 1 / 3 / 1 / 5 |
+| handler doesn't bind `status`/`contactId` (passes `null, null`) | 0, equivalent (see Nit 2) |
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Blocking | test-writer | `tests/MicroCrm.Api.Tests/Integration/Todos/ListTodosTests.cs:79-105` | AC-044's "then `createdAt` ascending" key isn't tested. `Guid.CreateVersion7(now)` takes its millisecond prefix from the same fake clock as `createdAt`. Every distinct-`createdAt` pair in the fixture differs by ≥ 1 s, so id order always equals `createdAt` order. Dropping `ThenBy(CreatedAt)`, or swapping it with `ThenBy(Id)`, passes 536/536. ADR-0009 rejects option 2 precisely because ordering by id is "not equivalent" within a millisecond, and this is the spec 001 T-12 vacuous-tiebreak pattern. | Add rows (in this test or a sibling `_AC044` test) with the same due date and `createdAt` values that differ by less than 1 ms, e.g. 8 creates with `factory.Time.Advance(TimeSpan.FromTicks(1))` between them. The ids then share a millisecond prefix and are random, so `createdAt` order and id order diverge, while `createdAt` stays distinct at 100 ns (ADR-0009 ticks). Expect `OrderBy(CreatedAt)`. Verified in scratch: such a test (8 rows, assert distinct `createdAt`) fails `no_created` and `swap_created_id` on 3 of 3 runs each (survival odds 1/8!), and passes on the current code. A raw-SQL insert with ticks and a high-id-first pair also works, but the API route is simpler. |
+| 2 | Nit | implementer | `src/MicroCrm.Api/Features/Todos/TodosEndpoints.cs:69-70` | The handler binds `status`/`contactId` and passes them to a `Parse` that ignores them. That's an equivalent mutant (no test changes when they're unbound). It's harmless plumbing for T-11's signature (the 4-arg `Parse` is the plan signature and the unit tests demand it), and T-11 makes it load-bearing. | None required; T-11 covers it. |
+
+**Notes:**
+- **Order shape.** The SQL keys match plan section 7 and ADR-0009 exactly: `DueDate == null`, `DueDate`, `CreatedAt`, `Id`, count before the order, and `Skip`/`Take` only when `TryGetSkip` succeeds. It mirrors `ListContacts`. The nulls placement is pinned (`nulls_first` and `no_nullkey` killed). SQLite would put NULLs first without the `IS NULL` key, and the seed's two "no date" rows created early catch that.
+- **GUID comparer (the test-writer's worry).** Not a real gap. A `dotnet run` probe over 200,000 same-millisecond v7 pairs found 0 disagreements between `string.CompareOrdinal` on lowercase, ordinal on uppercase (what SQLite BINARY compares on EF's uppercase TEXT), and `Guid.CompareTo` on .NET 10. A little-endian byte comparer (`ToByteArray`, e.g. a BLOB storage change) disagrees on 49.8% of pairs, so with two tie groups of 6 random ids such a mutant survives with odds of about 1/720². The expected-order construction in the test is correct. plan.md line 281 and tasks.md line 376 claim `Guid.CompareTo` "orders bytes differently". That's false on .NET 10 (it compares `_a`/`_b`/`_c` unsigned, then bytes, which matches the text). It's harmless guidance; route it to `/document` as a correction.
+- **Paging parity with contacts.** Real: `TodoListQuery.Parse` delegates to `ListQuery.Parse(page, pageSize, search: null)`, and the unit theory asserts equality with `ListQuery`'s own messages. The integration theory adds `""`, `"  "`, `2147483648` and `+1`, which match spec 002's contacts rows.
+- **T-11 can fail first.** `Parse` returns `Status: null, ContactId: null` unconditionally, and the handler applies no filter. So T-11's unit tests (`Parse_Status_...` and the others) get null/no errors, and its integration tests get unfiltered lists and 200 instead of 400, matching T-11's "Expected RED". The `TodoStatus` enum exists only because the record's plan signature needs it, and its values are unused.
+- **Minimality is clean, with nothing from T-11+ added.** No status/contactId parsing, no filter `Where`, no `today`, no nested `/api/contacts/{id}/todos` route (T-12), no `IsModified` (T-13), no concurrency catch (T-14), no `.WithName`/`.WithSummary`/`Produces*` (T-15), no new migration.
+- **T-09 Nits are closed.** The `DeleteTodoTests.cs:83` comment now correctly explains the 405 at RED. The AC-041 follow-up GET now uses `ProblemAssert.IsProblemAsync(..., 404)`, which strengthens it.
+- **No test removed or weakened.** 494 → 536 = +42 (12 unit rows, 6 in `ListTodosTests`, 23 in `ListTodosPagingTests`, 1 in `TodoErrorHandlingTests`), which agrees with the reported RED: a build break on `TodoListQuery`, then all 30 new integration tests (6 + 23 + 1) failing with 405.
+- The "Should-fix, deferrable to T-14" from T-09 (deterministic delete pin) is still open, as expected.
+
+## T-10 fix cycle 1: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 537/537 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; no web changes) · typecheck n.a. (no web changes)
+
+**Finding 1 (Blocking, test-writer) is closed.** `ListTodos_SameDueDate_OrdersByCreatedAtNotId_AC044` (`ListTodosTests.cs:131`) does three things:
+- it aligns the fake clock to a millisecond boundary, so all 8 creates share one v7 millisecond prefix and their ids are random relative to each other;
+- it advances 1 tick per create and asserts 8 distinct `createdAt` values;
+- it expects insertion order, which equals `createdAt` order because the clock is monotonic.
+
+| Mutant (scratch copy, full backend suite) | Tests failed |
+|---|---|
+| `no_created` (drop `.ThenBy(t => t.CreatedAt)`) | 1 (the new test), 5 of 5 runs |
+| `swap_created_id` (`ThenBy(Id).ThenBy(CreatedAt)`) | 1 (the new test), 5 of 5 runs |
+
+**Notes:**
+- Production is unchanged (`TodosEndpoints.cs:84-88`). The original AC-044 test is untouched; this is a pure addition (536 → 537).
+- The survival odds for either mutant are 1/8! per run. The millisecond alignment removes the only way two ids could straddle a millisecond and fall back into `createdAt` order.
+- Nit 2 (status/contactId binding) and the `/document` note on the `Guid.CompareTo` wording stand as before. Neither blocks.

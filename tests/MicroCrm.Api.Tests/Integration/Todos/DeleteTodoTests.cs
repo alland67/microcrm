@@ -80,7 +80,8 @@ public sealed class DeleteTodoTests(ApiFactory factory) : IClassFixture<ApiFacto
         using var againProblem = await ProblemAssert.IsProblemAsync(again, 404);
     }
 
-    // Guard: no route matches a non-GUID id, so status code pages already give 404 problem+json.
+    // Guard: at RED these rows got 405 (DELETE was not mapped and the method policy runs before the :guid
+    // constraint). With DELETE mapped, no route matches a non-GUID id, so status code pages give 404 problem+json.
     [Theory]
     [InlineData("not-a-guid")]
     [InlineData("123")]
@@ -146,7 +147,7 @@ public sealed class DeleteTodoTests(ApiFactory factory) : IClassFixture<ApiFacto
         using var reopenProblem = await ProblemAssert.IsProblemAsync(reopen, 404);
 
         using var reader = factory.CreateClient();
-        Assert.Equal(HttpStatusCode.NotFound, (await reader.GetAsync($"/api/todos/{id}", Ct)).StatusCode);
+        using var getProblem = await ProblemAssert.IsProblemAsync(await reader.GetAsync($"/api/todos/{id}", Ct), 404);
         Assert.Equal(0, await RowCountAsync(id));
         Assert.Equal(total, await TodoCountAsync());
     }

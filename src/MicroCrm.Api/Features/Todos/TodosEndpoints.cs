@@ -1,3 +1,4 @@
+using MicroCrm.Api.Common;
 using MicroCrm.Api.Data;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -12,6 +13,7 @@ public static class TodosEndpoints
         var group = app.MapGroup("/api/todos");
 
         group.MapPost(string.Empty, CreateTodo);
+        group.MapGet(string.Empty, ListTodos);
         group.MapGet("/{id:guid}", GetTodoById);
         group.MapPut("/{id:guid}", UpdateTodo);
         group.MapPost("/{id:guid}/complete", CompleteTodo);
@@ -57,6 +59,41 @@ public static class TodosEndpoints
         }
 
         return TypedResults.Created($"/api/todos/{todo.Id}", TodoResponse.From(todo));
+    }
+
+    private static async Task<Results<Ok<PagedResponse<TodoResponse>>, ValidationProblem>> ListTodos(
+        AppDbContext db,
+        CancellationToken ct,
+        string? page = null,
+        string? pageSize = null,
+        string? status = null,
+        string? contactId = null)
+    {
+        var (query, errors) = TodoListQuery.Parse(page, pageSize, status, contactId);
+        if (query is null)
+        {
+            return TypedResults.ValidationProblem(errors!);
+        }
+
+        var todos = db.Todos.AsNoTracking();
+        var totalCount = await todos.CountAsync(ct);
+
+        var items = new List<TodoResponse>();
+        if (query.Paging.TryGetSkip(out var skip))
+        {
+            var rows = await todos
+                .OrderBy(t => t.DueDate == null)
+                .ThenBy(t => t.DueDate)
+                .ThenBy(t => t.CreatedAt)
+                .ThenBy(t => t.Id)
+                .Skip(skip)
+                .Take(query.Paging.PageSize)
+                .ToListAsync(ct);
+            items.AddRange(rows.Select(TodoResponse.From));
+        }
+
+        return TypedResults.Ok(new PagedResponse<TodoResponse>(
+            items, query.Paging.Page, query.Paging.PageSize, totalCount));
     }
 
     private static async Task<Results<Ok<TodoResponse>, ProblemHttpResult>> GetTodoById(

@@ -360,7 +360,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-10: List to-dos: envelope, order, paging
+- [x] T-10: List to-dos: envelope, order, paging. Done: GET /api/todos, TodoListQuery (paging via ListQuery), order nulls-last/DueDate/CreatedAt/Id; review APPROVE after 1 fix cycle (createdAt tiebreak test added)
   - **ACs:** AC-042, AC-043, AC-044, AC-045, AC-046, AC-056 (paging), AC-020 (list), AC-038 (list), AC-063 (list), AC-074 (list paging), AC-073 (list)
   - **Depends on:** T-09
   - **Tests:**
