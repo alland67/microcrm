@@ -602,3 +602,51 @@
 - **AC-072.** Every nested 400/404/500 goes through `ProblemAssert.IsProblemAsync` (exact key set, problem+json). No bare status asserts were added.
 - **AC-073.** The test drops `Todos` only, after the contact is created, so the 500 comes from the to-do query and not from the contact check. The swallow mutant is killed.
 - A non-GUID id with an invalid query (`not-a-guid?page=0`) gives 404, because the route constraint runs before query parsing. AC-061 only covers well-formed GUIDs, so this is consistent.
+
+## T-13: 2026-10-05: APPROVE
+
+**Checks:** backend 631/631 pass (1 run in the repo, 9 more full runs in a scratch copy, all green) · `dotnet format --verify-no-changes` exit 0 · frontend lint/typecheck not run (no `web/` changes).
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-067 (create) | `CreateTodo_ContactDeletedBeforeSave_Returns400AndCreatesNothing_AC067` (guard), `CreateTodo_WithContact_SendsNoContactLookup_AC067` | yes. The interceptor deletes the contact in `SavingChangesAsync`, and `Fired == 1` proves it ran. The check is `ProblemAssert` with the exact key set plus the exact message, with the row count unchanged. |
+| AC-067 (update, relink) | `UpdateTodo_NewContactDeletedBeforeSave_Returns400AndLeavesTodoUnchanged_AC067` (guard) | yes. The whole GET body is byte-identical before and after. |
+| AC-067 (update, keep link) | `UpdateTodo_KeptContactDeletedBeforeSave_Returns400AndTodoIsUnlinked_AC067` | yes. RED → GREEN is demanded by `IsModified`. The test asserts `contactId` null, the original title, and the original `updatedAt`, with the dangling count 0. |
+| AC-067 (concurrent) | `CreateUpdateAndContactDelete_Concurrent_NoDanglingLinks_AC067` (guard) | yes. Codes stay in the documented sets, the dangling query returns 0, and `foreign_key_check` returns no rows. |
+| AC-065 (completed delete never half) | `DeleteContacts_ConcurrentObserver_NeverSeesDanglingLink_AC065` (guard) | yes. It kills a non-atomic delete in every run (see below). |
+| AC-057 (T-12 should-fix) | `ListContactTodos_ContactIdQueryValue_IsIgnored_AC057` (3 rows) | yes. It kills `nested_reads_cid` and `nested_prefers_cid`. |
+
+**Mutants** (scratch copy, full suite unless noted):
+| Mutant | Fails |
+|---|---|
+| `no_ismodified` (drop the `IsModified = true` line) | 1 (`UpdateTodo_KeptContact..._AC067`) |
+| `create_precheck` (`AnyAsync` before `Add`, catch kept) | 1 (`CreateTodo_WithContact_SendsNoContactLookup`) |
+| `update_precheck_before_lookup` | 2 (`UpdateTodo_WithContact_SendsNoContactLookup`, `UpdateTodo_UnknownContactToUnknownTodo_Returns404_AC028`) |
+| `update_precheck_after_lookup` | 1 (`UpdateTodo_WithContact_SendsNoContactLookup`) |
+| `create_precheck_nocatch` (pre-check replaces the 787 catch) | 3 (deterministic create race, no-lookup, smoke) |
+| `nonatomic_delete` (contact delete with FKs off, then an app-side `ExecuteUpdateAsync` unlink) | 3 (both AC-065 trigger tests and the observer). The observer alone kills it 8/8 isolated and 5/5 in full runs. |
+| `nonatomic_delete_delay` (the same, plus a 5 ms gap) | 3 |
+| `nested_reads_cid` / `nested_prefers_cid` (T-12 carry-forward) | 1 / 2 (the new AC057 theory) |
+
+**Carry-forwards closed.**
+- **Pre-check survivors (create; update before and after the lookup).** All three are now killed, but by the two `SendsNoContactLookup` command-recording tests, not by the interceptor race tests. With the 787 catch in place, a pre-check plus the FK gives the same HTTP outcome under any interleaving, so only a SQL-level assertion can see it. Pinning the ADR-0008 decision this way is legitimate. `Assert.NotEmpty(recorder.Commands)` stops the test passing vacuously if the interceptor is never wired up. A pre-check *without* the catch is killed deterministically by the interceptor create test.
+- **`IsModified`.** It is load-bearing (1 fail), and it is placed after the assignments and before the save, as plan design point 3 prescribes.
+- **Stability.** The race class passed 12/12 in isolation, and the full suite passed 10/10 (repo plus scratch).
+- **Do the concurrent tests interleave?** A scratch probe logged the smoke test's status distribution over 8 runs. Every run mixed outcomes: creates came back as 201 and 400 (between 3/15 and 16/2), and PUTs as 200 and 400. So deletes really do land between the other requests. The observer kills the non-atomic delete every time, so its reads overlap the deletes. The smoke test catches `create_precheck_nocatch` only probabilistically (0/8 isolated in one batch, 2/4 in another, 1/1 in a full run). That is acceptable for a guard, because the deterministic test pins the same thing.
+- **Minimality.**
+  - There is no `DbUpdateConcurrencyException` catch, and no `WithName`/`WithSummary`/`Produces*`/`WithTags`.
+  - The only `AnyAsync` is the nested-list contact check, which plan §283 prescribes.
+  - There is no new migration.
+  - The production diff is the single `IsModified` line plus its comment.
+- **T-12 Nit (AC-068).** Closed: the test now asserts the nested 200 before the delete.
+
+**Findings:** none.
+
+**Notes:**
+- Add `CreateTodo_WithContact_SendsNoContactLookup_AC067`, `UpdateTodo_WithContact_SendsNoContactLookup_AC067` and `ListContactTodos_ContactIdQueryValue_IsIgnored_AC057` to the tasks.md traceability table at `/document`. They aren't in the T-13 test list.
+- The no-lookup tests match any SQL that contains `Contacts`. If a later spec adds a contact join to to-do writes (for example, returning a contact name), these tests will need revisiting together with ADR-0008.
+- T-14 carry-forwards:
+  - add the concurrency catch before the 787 catch on PUT, complete and reopen;
+  - add a deterministic pin for load-then-remove on the to-do delete (the T-09 should-fix);
+  - metadata waits for T-15.

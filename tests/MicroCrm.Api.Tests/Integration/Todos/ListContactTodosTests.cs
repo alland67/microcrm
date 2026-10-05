@@ -254,6 +254,26 @@ public sealed class ListContactTodosTests(ApiFactory factory) : IClassFixture<Ap
         using var notFound = await ProblemAssert.IsProblemAsync(valid, 404);
     }
 
+    // Guard: the contact comes from the route; a contactId query value is ignored, valid or not.
+    [Theory]
+    [InlineData("?contactId=not-a-guid")]
+    [InlineData("?contactId=OTHER")]
+    [InlineData("?contactId=OTHER&status=open&pageSize=100")]
+    public async Task ListContactTodos_ContactIdQueryValue_IsIgnored_AC057(string query)
+    {
+        using var client = factory.CreateClient();
+        var contact = await NewContactAsync(client, "route");
+        var other = await NewContactAsync(client, "route-other");
+        var mine = await CreateAsync(client, "mine", null, contact);
+        await CreateAsync(client, "theirs", null, other);
+        await CreateAsync(client, "unlinked", null, null);
+
+        using var doc = await ListOkAsync(client, $"/api/contacts/{contact}/todos{query.Replace("OTHER", other.ToString())}");
+
+        Assert.Equal([mine.Id], Ids(doc));
+        Assert.Equal(1, Total(doc));
+    }
+
     [Fact]
     public async Task ListContactTodos_DeletedContact_Returns404_AC068()
     {
@@ -261,6 +281,8 @@ public sealed class ListContactTodosTests(ApiFactory factory) : IClassFixture<Ap
         var contact = await NewContactAsync(client, "gone");
         var todo = await CreateAsync(client, "former", null, contact);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/contacts/{contact}", Ct)).StatusCode);
+        // Before the delete the nested list works, so the 404 below is caused by the delete.
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/contacts/{contact}/todos", Ct)).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/contacts/{contact}", Ct)).StatusCode);
         var response = await client.GetAsync($"/api/contacts/{contact}/todos", Ct);

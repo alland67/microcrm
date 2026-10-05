@@ -465,7 +465,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-13: Races between linking a to-do and deleting the contact
+- [x] T-13: Races between linking a to-do and deleting the contact. Done: PUT forces ContactId modified so the FK is re-checked; SQL-recording tests pin no contact pre-check; T-12 follow-ups closed; review APPROVE
   - **ACs:** AC-067, AC-065 (completed delete never shows a half state)
   - **Depends on:** T-12
   - **Tests:** `TI/TodoContactLinkRaceTests.cs` (new; uses the `SaveChangesInterceptor` technique from `UpdateDeleteRaceTests`, registered with `ConfigureDbContext<AppDbContext>(o => o.AddInterceptors(...))` on a derived host; the interceptor deletes the **contact** through a separate connection once):

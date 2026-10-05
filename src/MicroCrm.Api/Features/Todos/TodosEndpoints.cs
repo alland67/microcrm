@@ -182,6 +182,10 @@ public static class TodosEndpoints
         todo.ContactId = input.ContactId;
         todo.UpdatedAt = time.GetUtcNow();
 
+        // Always write ContactId so SQLite re-checks the FK even when the value is unchanged
+        // (the contact may have been deleted since the todo was loaded).
+        db.Entry(todo).Property(t => t.ContactId).IsModified = true;
+
         try
         {
             await db.SaveChangesAsync(ct);
