@@ -313,3 +313,40 @@
 - **No test removed or weakened.** 419 → 457 = +38: 32 in `UpdateTodoValidationTests` (25 red + 7 AC-015 guard rows) and 6 unit NFR-005 rows. The only edit to an existing test is the AC-030 snapshot growing by one URL.
 - `UpdateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011` is not in the tasks.md test list; it's an extra, justified by AC-011's "each offending field" wording. Add it to the Traceability table at `/document`.
 - The seeded to-do is linked, has notes and a due date, so the column-by-column unchanged check is meaningful for every field. The fixed fake clock means a bare `UpdatedAt = now` touch on invalid input would be value-equivalent (not observable); only a changed value is a real mutant, and that one is killed.
+
+## T-07: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 464/464 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; `npm --prefix web run lint` exit 0, no web changes) · typecheck pass (`npm --prefix web run typecheck` exit 0, no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-026 (GUID) | `UpdateTodo_UnknownGuid_Returns404AndCreatesNothing_AC026` | yes: 404 problem, follow-up GET still 404, row count unchanged. Killed by `upsert` and `upsert_then_404`. |
+| AC-026 (non-GUID) | `UpdateTodo_NonGuidId_Returns404_AC026` (`not-a-guid`, `123`), guard | yes for status and "no change" (row count). Only the status code is asserted, not problem+json (see Should-fix). |
+| AC-028 | `UpdateTodo_UnknownContactToUnknownTodo_Returns404_AC028` | yes: 404 problem with no `errors`, row count unchanged. Killed by `contact_precheck` (an `AnyAsync` contact check before the lookup). It's the only test that pins to-do-before-contact order. |
+| AC-029 | `UpdateTodo_UnknownContactId_Returns400AndLeavesTodoUnchanged_AC029` | yes: exact key set `contactId`, exact message, fresh-client GET body and raw row both unchanged after a clock advance, original link kept. Killed by `no_catch`, `fk_partial_save` and `fk_wrong_msg`. |
+| AC-073 (update) | `UpdateTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (dropped table, guard), `UpdateTodo_WhenNonForeignKeyConstraintFails_Returns500AndLeavesTodoUnchanged_AC073` (own fixture, BEFORE UPDATE trigger, guard) | yes: the trigger test pins the catch scope. Broadened-filter mutants are all killed by it (see below). It uses a valid existing `contactId`, so the 787 path is not hit by accident. The trigger is dropped in `finally`, and the full Todos+Contacts snapshot plus the raw row are unchanged. |
+| AC-072 (404) | AC-026 GUID and AC-028 via `ProblemAssert.IsProblemAsync` (type/title/status, content type) | yes for the handler 404. The route-level non-GUID 404 isn't asserted as a problem on PUT (see Should-fix). |
+
+**Mutation (scratch copy, full backend suite per mutant; `UpdateTodo` only, the create path is untouched):**
+| Mutant | Tests failed |
+|---|---|
+| `primary19` (filter on `SqliteErrorCode == 19`) | 1 (BEFORE UPDATE trigger test) |
+| `any_sqlite` (filter on any `SqliteException`) | 1 (trigger test) |
+| `unfiltered` (`catch (DbUpdateException)`) | 1 (trigger test) |
+| `no_catch` (filter never matches) | 1 (AC-029) |
+| `contact_precheck` (`AnyAsync` on Contacts before the to-do lookup → 400) | 1 (AC-028) |
+| `upsert` (null lookup → insert the to-do) | 2 (AC-026, AC-028) |
+| `upsert_then_404` (insert and save, then return 404) | 2 (AC-026, AC-028) |
+| `fk_partial_save` (on 787, null ContactId, save, then 400) | 1 (AC-029) |
+| `fk_wrong_msg` (different contactId message) | 1 (AC-029) |
+
+**Findings:**
+- **Should-fix (test-writer)** `tests/MicroCrm.Api.Tests/Integration/Todos/UpdateTodoTests.cs:341`: `UpdateTodo_NonGuidId_Returns404_AC026` only checks `HttpStatusCode.NotFound`. plan.md section 8 and the traceability row (line 339) say every error test goes through `ProblemAssert.IsProblemAsync` (AC-072). The sibling tests already do this: `GetTodo_NonGuidId_Returns404Problem_AC019` and contacts `UpdateContact_NonGuidId_Returns404Problem_AC023`. The behaviour is already correct. A scratch probe replaced the assert with `using var problem = await ProblemAssert.IsProblemAsync(response, 404);` and passed 2/2 (`UseStatusCodePages` is global). Because of that, and because GET non-GUID already covers the same pipeline, this is not Blocking. Fixed means: the theory uses `ProblemAssert.IsProblemAsync(response, 404)`, and the name can become `..._Returns404Problem_AC026`. It can be folded into any later test-writer task.
+
+**Notes:**
+- **Carry-forwards closed.** The null→404 branch comes after validation and before both the field assignments and the `try`/`SaveChangesAsync`. The 787 catch only wraps the save. The BEFORE UPDATE trigger test kills every broadened filter (`primary19`, `any_sqlite`, `unfiltered`).
+- **Minimality is clean.** The production diff is limited to: `FirstAsync` → `FirstOrDefaultAsync` plus a null → `TypedResults.Problem(404)` branch, the return type widened with `ProblemHttpResult`, a 787-filtered catch around the save, and `UnknownContact()` extracted verbatim from create (same key and message, so this is a behaviour-preserving refactor). These are still absent: `IsModified` on ContactId (T-13), a `DbUpdateConcurrencyException` catch (T-14), `.WithName`/`.WithSummary`/`Produces*` (T-15), and any `Contacts` pre-check or `AnyAsync` in `Features/Todos/` (ADR-0008). There's no change under `Data/` and no new migration.
+- **No test removed or weakened.** 457 → 464 = +7 (AC-026 ×3, AC-028, AC-029, AC-073 ×2). Existing tests are untouched; only a private `TodoCountAsync` helper was added.
+- The RED claim is consistent with the code at e256540. `FirstAsync` throws on an unknown id → 500 for AC-026 GUID and AC-028. With no catch, the 787 → 500 for AC-029. Both AC-073 tests and the non-GUID theory are guards.
+- The `contact_precheck` mutant (the T-04 survivor pattern, now on update) is killed here only because of the ordering AC-028. A pre-check placed *after* the lookup would still survive until T-13's race tests, which is expected.

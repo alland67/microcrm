@@ -308,4 +308,81 @@ public sealed class UpdateTodoTests(ApiFactory factory) : IClassFixture<ApiFacto
             Assert.Equal(snapshot[i], await GetBodyAsync(fresh, urls[i]));
         }
     }
+
+    private async Task<long> TodoCountAsync() =>
+        await TodoStoreTests.ScalarAsync(factory.ConnectionString, "SELECT COUNT(*) FROM Todos");
+
+    [Fact]
+    public async Task UpdateTodo_UnknownGuid_Returns404AndCreatesNothing_AC026()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var unknown = Guid.CreateVersion7();
+        var before = await TodoCountAsync();
+
+        var response = await PutAsync(client, unknown, """{"title":"Ghost"}""");
+
+        using var problem = await ProblemAssert.IsProblemAsync(response, 404);
+        var get = await client.GetAsync($"/api/todos/{unknown}", Ct);
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+        Assert.Equal(before, await TodoCountAsync());
+    }
+
+    // Guard: a non-GUID id never matches the {id:guid} route, so this passes before T-07.
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("123")]
+    public async Task UpdateTodo_NonGuidId_Returns404_AC026(string id)
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var before = await TodoCountAsync();
+
+        var response = await client.PutAsync($"/api/todos/{id}", Json("""{"title":"Ghost"}"""), Ct);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(before, await TodoCountAsync());
+    }
+
+    [Fact]
+    public async Task UpdateTodo_UnknownContactToUnknownTodo_Returns404_AC028()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var before = await TodoCountAsync();
+
+        var response = await PutAsync(client, Guid.CreateVersion7(),
+            $$"""{"title":"Ghost","contactId":"{{Guid.CreateVersion7()}}"}""");
+
+        using var problem = await ProblemAssert.IsProblemAsync(response, 404);
+        Assert.False(problem.RootElement.TryGetProperty("errors", out _), "To-do existence is checked before contact existence");
+        Assert.Equal(before, await TodoCountAsync());
+    }
+
+    [Fact]
+    public async Task UpdateTodo_UnknownContactId_Returns400AndLeavesTodoUnchanged_AC029()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var original = await NewContactAsync(client, "ac029");
+        var id = await CreateTodoAsync(client, "Keep me", original, "Keep notes", "2026-10-05");
+        var before = await GetBodyAsync(client, $"/api/todos/{id}");
+        var rowBefore = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
+        factory.Time.Advance(TimeSpan.FromHours(1));
+
+        var response = await PutAsync(client, id,
+            $$"""{"title":"Changed","notes":"Changed notes","dueDate":"2027-01-01","contactId":"{{Guid.CreateVersion7()}}"}""");
+
+        using var problem = await ProblemAssert.IsProblemAsync(response, 400, "contactId");
+        Assert.Equal(
+            ["Must refer to an existing contact."],
+            problem.RootElement.GetProperty("errors").GetProperty("contactId").EnumerateArray().Select(e => e.GetString()).ToArray());
+        using var fresh = factory.CreateClient();
+        Assert.Equal(before, await GetBodyAsync(fresh, $"/api/todos/{id}"));
+        var rowAfter = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
+        Assert.NotNull(rowBefore);
+        Assert.NotNull(rowAfter);
+        Assert.Equal(rowBefore, rowAfter);
+        Assert.Equal(TodoStoreTests.Upper(original), rowAfter["ContactId"]);
+    }
 }

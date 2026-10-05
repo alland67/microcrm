@@ -265,7 +265,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-07: Update of an unknown to-do (404) or to a missing contact (400)
+- [x] T-07: Update of an unknown to-do (404) or to a missing contact (400). Done: null lookup -> 404 before save, 787-only catch -> 400 contactId, shared UnknownContact(); review APPROVE (1 should-fix: non-GUID PUT test should use ProblemAssert, deferred to T-08)
   - **ACs:** AC-026, AC-028, AC-029, AC-073 (update), AC-072 (404)
   - **Depends on:** T-06
   - **Tests:**
