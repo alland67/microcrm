@@ -518,7 +518,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-15: OpenAPI describes every to-do operation
+- [x] T-15: OpenAPI describes every to-do operation. Done: WithName/WithSummary on 8 operations, ProducesProblem(404) on 6; T-14 nit closed (concurrent test asserts problem+json); review APPROVE
   - **ACs:** NFR-001, AC-072 (documented content type)
   - **Depends on:** T-14
   - **Tests:** `T/Integration/OpenApiTests.cs` (extend):

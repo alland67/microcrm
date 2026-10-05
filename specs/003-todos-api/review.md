@@ -692,3 +692,30 @@
 - **No-op complete/reopen racing a delete.** This path returns 200 without saving. 200 is in the AC-070 set for complete/reopen, and plan line 277 accepts it explicitly. No row can be re-created, because nothing is written, and the AC's "a later GET is 404 when the delete returned 204" still holds. It's acceptable, and there's no test for it, which is consistent with the plan.
 - **tasks.md drift (route to `/document`).** T-14 lists both concurrent tests as Guards, but `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` was RED (it fails without the catches, see `both_no_cc`). Also add `DeleteTodo_NeverLoadsThenRemoves_AC071` to the traceability table. It isn't in the T-14 test list.
 - The gate/`RunGatedAsync` block is now repeated in 6 test classes. That's pre-existing test-side duplication. Consider extracting it into `Integration/Infrastructure` later. It is not a T-14 issue.
+
+## T-15: 2026-10-05: APPROVE
+
+**Checks:** backend 647/647 pass (2 full runs; 637 + 10 new rows, nothing removed) · `TodoRaceTests` 6/6 on 5 of 5 isolated runs · `dotnet format --verify-no-changes` exit 0 · web lint exit 0 · web typecheck exit 0 · web tests 1/1.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| NFR-001 (names, summaries) | `OpenApi_TodoEndpoints_HaveOperationIdsAndSummaries_NFR001` | yes. All 8 operations are checked by path and verb, with an exact operationId and a non-empty summary. Removing any `.WithName` or `.WithSummary` call fails it (16/16 mutants killed). |
+| NFR-001 (status codes) | `OpenApi_TodoEndpoints_DocumentStatusCodes_NFR001` (8 rows) | yes. Each row's code set equals the NFR-001 set exactly. The create and list rows are guards (`TypedResults`/`ValidationProblem` metadata), as tasks.md says. Removing any `.ProducesProblem(404)` fails the matching row: the `ProblemHttpResult` return type alone does not emit a 404. |
+| AC-072 (documented content type) | `OpenApi_TodoEndpoints_ErrorResponsesAreProblemJson_NFR001` | yes. Every documented 400 and 404 must list `application/problem+json`. Each of the 6 `.ProducesProblem` mutants fails this test and the codes row (2 fails each). |
+| AC-070 / AC-072 (T-14 nit) | `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` | yes. Non-2xx writes now go through `ProblemAssert.IsProblemAsync`, and the result is disposed. The status argument is the response's own code, but the allowed set is checked on the line above, so the new call adds the content-type, `type`/`title`/`status` checks without weakening anything. It was stable on 5 of 5 isolated runs. |
+
+**Mutants** (scratch copy, `OpenApiTests` only): 22 of 22 killed. Each `.WithName`/`.WithSummary` removal fails 1 test; each `.ProducesProblem(404)` removal fails 2.
+
+**Verification:**
+- **Names and paths.** The OpenAPI document was dumped from a scratch probe. Every name matches the plan signature list (`CreateTodo`, `ListTodos`, `GetTodoById`, `UpdateTodo`, `DeleteTodo`, `CompleteTodo`, `ReopenTodo`, `ListContactTodos`). They follow the contacts pattern (`<Verb><Resource>`, `Get…ById`). The paths are `/api/todos`, `/api/todos/{id}`, `/api/todos/{id}/complete`, `/api/todos/{id}/reopen` and `/api/contacts/{id}/todos`. The summaries are in sentence case, like the contacts summaries.
+- **Error content.** Every documented to-do error response (6 × 404, 4 × 400) has `application/problem+json`, and no other 4xx/5xx is documented. 2xx responses are `application/json`, and the 204 has no content.
+- **No behavior change.** The production diff is metadata only. Nothing in `src/` resolves routes by name (no `CreatedAtRoute`/`LinkGenerator`), the names don't collide with the contacts names, and the full suite is unchanged. No logging was added (NFR-004). There's no `WithTags` and no `ProducesValidationProblem`, which is correct per plan section 10 (400 metadata comes from `ValidationProblem`).
+- **Plan conformance.** This matches plan section 10 and the T-15 entry: `.ProducesProblem(404)` is on exactly the 6 operations that can 404.
+
+**Findings:** none.
+
+**Notes:**
+- The default tag is `TodosEndpoints` (the class name), the same as `ContactsEndpoints`. This is not an NFR requirement.
+- The table-driven test style differs from the per-operation contacts facts. That's acceptable and easier to read; no action.
+- Route to `/document`: fill the tasks.md Traceability column for NFR-001 with the three tests above.

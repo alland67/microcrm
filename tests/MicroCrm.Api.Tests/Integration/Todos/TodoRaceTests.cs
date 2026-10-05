@@ -221,6 +221,11 @@ public sealed class TodoRaceTests(ApiFactory factory) : IClassFixture<ApiFactory
                 ? new[] { HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.NotFound }
                 : [HttpStatusCode.OK, HttpStatusCode.NotFound];
             Assert.True(allowed.Contains(write.StatusCode), $"Write kind {kind} returned {(int)write.StatusCode}");
+            if (!write.IsSuccessStatusCode)
+            {
+                (await ProblemAssert.IsProblemAsync(write, (int)write.StatusCode)).Dispose();
+            }
+
             Assert.True(
                 delete.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.NotFound,
                 $"DELETE returned {(int)delete.StatusCode}");

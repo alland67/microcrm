@@ -12,15 +12,37 @@ public static class TodosEndpoints
     {
         var group = app.MapGroup("/api/todos");
 
-        group.MapPost(string.Empty, CreateTodo);
-        group.MapGet(string.Empty, ListTodos);
-        group.MapGet("/{id:guid}", GetTodoById);
-        group.MapPut("/{id:guid}", UpdateTodo);
-        group.MapPost("/{id:guid}/complete", CompleteTodo);
-        group.MapPost("/{id:guid}/reopen", ReopenTodo);
-        group.MapDelete("/{id:guid}", DeleteTodo);
+        group.MapPost(string.Empty, CreateTodo)
+            .WithName("CreateTodo")
+            .WithSummary("Create a to-do");
+        group.MapGet(string.Empty, ListTodos)
+            .WithName("ListTodos")
+            .WithSummary("List to-dos with paging and optional filters");
+        group.MapGet("/{id:guid}", GetTodoById)
+            .WithName("GetTodoById")
+            .WithSummary("Get a to-do by id")
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        group.MapPut("/{id:guid}", UpdateTodo)
+            .WithName("UpdateTodo")
+            .WithSummary("Replace a to-do")
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        group.MapPost("/{id:guid}/complete", CompleteTodo)
+            .WithName("CompleteTodo")
+            .WithSummary("Mark a to-do as done")
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        group.MapPost("/{id:guid}/reopen", ReopenTodo)
+            .WithName("ReopenTodo")
+            .WithSummary("Reopen a completed to-do")
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        group.MapDelete("/{id:guid}", DeleteTodo)
+            .WithName("DeleteTodo")
+            .WithSummary("Delete a to-do")
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        app.MapGet("/api/contacts/{id:guid}/todos", ListContactTodos);
+        app.MapGet("/api/contacts/{id:guid}/todos", ListContactTodos)
+            .WithName("ListContactTodos")
+            .WithSummary("List one contact's to-dos")
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
