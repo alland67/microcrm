@@ -556,3 +556,49 @@
 **Notes:**
 - The `no_isdefined` survivor from the first review no longer exists, because the code it mutated was removed.
 - Every other point in the first T-11 review still holds (overdue boundaries, today from the injected clock as a UTC date, error merging, nothing from T-12+). None of it was touched by the fix.
+
+## T-12: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 621/621, frontend 1/1 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; oxlint clean) · typecheck pass (`tsc -b`; no web changes)
+
+**Conformance:**
+- `TodosEndpoints.cs:23` maps `GET /api/contacts/{id:guid}/todos`. `ListContactTodos` (lines 84-105) follows plan §283 in order: `TodoListQuery.Parse(page, pageSize, status, null)`, then 400, then `Contacts.AnyAsync`, then 404 problem, then `ListPage` with `query with { ContactId = id }`. The return type matches the plan signature (line 155). The nested route doesn't read `contactId`, as plan line 89 says.
+- **The `ListPage` refactor is a pure extraction.** The filter/count/order/skip/take body moved unchanged, and `ListTodos` now only wraps it in `TypedResults.Ok`. Every existing `GET /api/todos` test still passes, and the shared-helper mutants (below) fail the global tests as before.
+- **Minimality.** No `.WithName`/`.WithSummary`/`Produces*`/`WithTags`, no `IsModified`, no concurrency catch, no migration. Nothing from T-13+ is present. The `AnyAsync` contact check is plan-prescribed for this route only, so it isn't the forbidden create/update pre-check.
+- **No test removed or weakened.** The test diff only adds lines: one new `[Fact]` in `TodoErrorHandlingTests.cs` and the new `ListContactTodosTests.cs`.
+
+**Mutants (scratch copy, full backend suite):**
+| Mutant | Tests failed |
+|---|---|
+| `no_created` (drop `ThenBy(CreatedAt)`), carry-forward | 2 (nested AC057 + global AC044) |
+| `swap_created_id`, carry-forward | 2 (nested AC057 + global AC044) |
+| `old_enum` (`Enum.TryParse` + `IsDefined` + `!int.TryParse`), carry-forward | 9 (3 nested comma rows of `InvalidQuery_..._AC058`, 3 global, 3 unit) |
+| `lookup_first` (contact check before Parse) | 5 (AC061 ×4, AC074 unknown-contact row) |
+| `no_contact_check` | 7 (AC060 ×4, AC061, AC068) |
+| `check_by_todos` (exists = has to-dos) | 1 (AC059) |
+| `no_route_filter` (drop `ContactId = id`) | 14 |
+| `nested_no_status` / `nested_no_page` / `nested_no_pagesize` (null passed to Parse) | 16 / 10 / 15 |
+| `nested_plain_400` (`Problem(400)` instead of `ValidationProblem`) | 17 |
+| `nested_swallow_500` (catch → empty 200) | 1 (nested AC073) |
+| `count_after_page` (`totalCount = 0`) | 31 |
+| `unmapped` (route removed) | 32; `DeletedContact_..._AC068` and the AC060 rows pass, as expected for guards |
+| `nested_reads_cid` (bind `contactId` and pass it to Parse) | **0**. See finding 1. |
+
+**Carry-forwards closed.**
+- The createdAt mutants are killed through the nested route by `ExistingContact_..._AC057`. It aligns the clock to a millisecond boundary, then makes 8 same-day creates 1 tick apart, interleaved with foreign to-dos.
+- The comma-list rows are killed through the nested route.
+- The nested endpoint calls the same `TodoListQuery.Parse`, and its errors are compared byte-for-byte with the global list.
+- **Query errors come before the 404.** `lookup_first` is killed, and AC061 checks that the same id gives 404 once the query is valid.
+- **The AC-068 guard now has teeth.** It fails under `no_contact_check`. It still passes if the route is removed, because it has no nested-200 check before the delete (finding 2), but AC057/AC058/AC059 catch that case.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Should-fix | test-writer | `tests/MicroCrm.Api.Tests/Integration/Todos/ListContactTodosTests.cs` (AC057/AC058 tests) | Plan line 89 says the nested route ignores a `contactId` query value, and AC-057 requires 200 for an existing contact. Nothing pins this: a handler that binds `contactId` and passes it to `Parse` returns 400 for `?contactId=not-a-guid` on an existing contact, and the suite stays green (0 fails). | Add rows to the AC058 valid theory (or a small fact) for `?contactId=not-a-guid` and `?contactId={otherContact}`. Assert 200 with only the route contact's to-dos. The `nested_reads_cid` mutant should then fail. |
+| 2 | Nit | test-writer | `ListContactTodosTests.cs:258-273` | `DeletedContact_Returns404_AC068` checks `GET /api/contacts/{id}` is 200 before the delete, but not the nested list. On its own it can't tell "contact deleted" from "route missing". Other tests cover the route, so this is not a gap in the suite. | Optionally assert that `GET /api/contacts/{id}/todos` is 200 before the delete. |
+
+**Notes:**
+- The AC058 invalid-query rows live in a separate method, `ListContactTodos_InvalidQuery_Returns400SameAsGlobalList_AC058`, and `ListContactTodos_UnknownRandomGuid_Returns404Problem_AC060` is an extra test. Neither is in the tasks.md test list. Add both to the traceability table at `/document`.
+- **AC-072.** Every nested 400/404/500 goes through `ProblemAssert.IsProblemAsync` (exact key set, problem+json). No bare status asserts were added.
+- **AC-073.** The test drops `Todos` only, after the contact is created, so the 500 comes from the to-do query and not from the contact check. The swallow mutant is killed.
+- A non-GUID id with an invalid query (`not-a-guid?page=0`) gives 404, because the route constraint runs before query parsing. AC-061 only covers well-formed GUIDs, so this is consistent.

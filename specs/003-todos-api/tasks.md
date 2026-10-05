@@ -442,7 +442,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-12: List one contact's to-dos
+- [x] T-12: List one contact's to-dos. Done: GET /api/contacts/{id}/todos, query 400 before contact 404, shared ListPage helper; review APPROVE (should-fix: pin that ?contactId= is ignored on the nested route; nit: AC-068 nested-200 precheck; both deferred to T-13)
   - **ACs:** AC-057, AC-058, AC-059, AC-060, AC-061, AC-068 (nested), AC-072, AC-073 (nested), AC-074 (nested)
   - **Depends on:** T-11
   - **Tests:**

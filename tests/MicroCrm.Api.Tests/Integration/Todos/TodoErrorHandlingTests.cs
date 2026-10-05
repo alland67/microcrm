@@ -50,6 +50,20 @@ public sealed class TodoErrorHandlingTests(ApiFactory factory) : IClassFixture<A
         await AssertSafe500Async(response);
     }
 
+    // AC-073 (nested): only Todos is dropped; the contact exists, so the failure comes from the to-do query.
+    [Fact]
+    public async Task ListContactTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var contactId = await TodoStoreTests.CreateContactAsync(client, "Nested", $"nested.fail.{Guid.NewGuid():N}@example.com");
+        await BreakDatabaseAsync();
+
+        var response = await client.GetAsync($"/api/contacts/{contactId}/todos", Ct);
+
+        await AssertSafe500Async(response);
+    }
+
     [Fact]
     public async Task GetTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073()
     {

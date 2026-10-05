@@ -20,6 +20,8 @@ public static class TodosEndpoints
         group.MapPost("/{id:guid}/reopen", ReopenTodo);
         group.MapDelete("/{id:guid}", DeleteTodo);
 
+        app.MapGet("/api/contacts/{id:guid}/todos", ListContactTodos);
+
         return app;
     }
 
@@ -76,6 +78,35 @@ public static class TodosEndpoints
             return TypedResults.ValidationProblem(errors!);
         }
 
+        return TypedResults.Ok(await ListPage(db, query, time, ct));
+    }
+
+    private static async Task<Results<Ok<PagedResponse<TodoResponse>>, ProblemHttpResult, ValidationProblem>> ListContactTodos(
+        Guid id,
+        AppDbContext db,
+        TimeProvider time,
+        CancellationToken ct,
+        string? page = null,
+        string? pageSize = null,
+        string? status = null)
+    {
+        var (query, errors) = TodoListQuery.Parse(page, pageSize, status, null);
+        if (query is null)
+        {
+            return TypedResults.ValidationProblem(errors!);
+        }
+
+        if (!await db.Contacts.AnyAsync(c => c.Id == id, ct))
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return TypedResults.Ok(await ListPage(db, query with { ContactId = id }, time, ct));
+    }
+
+    private static async Task<PagedResponse<TodoResponse>> ListPage(
+        AppDbContext db, TodoListQuery query, TimeProvider time, CancellationToken ct)
+    {
         var todos = ApplyFilters(db.Todos.AsNoTracking(), query, time);
         var totalCount = await todos.CountAsync(ct);
 
@@ -93,8 +124,8 @@ public static class TodosEndpoints
             items.AddRange(rows.Select(TodoResponse.From));
         }
 
-        return TypedResults.Ok(new PagedResponse<TodoResponse>(
-            items, query.Paging.Page, query.Paging.PageSize, totalCount));
+        return new PagedResponse<TodoResponse>(
+            items, query.Paging.Page, query.Paging.PageSize, totalCount);
     }
 
     private static IQueryable<Todo> ApplyFilters(IQueryable<Todo> todos, TodoListQuery query, TimeProvider time)
