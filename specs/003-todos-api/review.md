@@ -650,3 +650,45 @@
   - add the concurrency catch before the 787 catch on PUT, complete and reopen;
   - add a deterministic pin for load-then-remove on the to-do delete (the T-09 should-fix);
   - metadata waits for T-15.
+
+## T-14: 2026-10-05: APPROVE
+
+**Checks:** backend 637/637 pass (4 full runs in the repo, plus 8/8 isolated runs of `TodoRaceTests`) · `dotnet format --verify-no-changes` exit 0 · web lint exit 0 · web typecheck exit 0 · web tests 1/1.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-070 (update) | `UpdateTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070` | yes. It runs deterministically: the interceptor deletes the to-do in `SavingChangesAsync`, and `Fired == 1` proves it ran. The test checks the response with `ProblemAssert` 404 (problem+json, exact key set), checks the row count is 0, and checks a later GET returns 404. |
+| AC-070 (complete / reopen) | `CompleteTodo_..._AC070` (open to-do), `ReopenTodo_..._AC070` (done to-do) | yes. Both use the same shape. Each starts from the state that forces a real transition, so the save path is exercised and the no-op path is not. |
+| AC-070 (concurrent, all writes) | `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` | yes. Codes are checked per verb against the AC sets, and every 204 is followed by a GET 404 and a row count of 0. It is not vacuous: it killed `both_no_cc` 5/5 isolated and 3/3 in full runs. |
+| AC-069 | `CompleteAndReopen_Concurrent_AllOkAndStateConsistent_AC069` (guard) | yes. Every response is 200, GET shows `isDone` matching `completedAt` presence, the SQL invariant count is 0, and the row count is unchanged. Interleaving is real: a probe that throws when another request has already applied the same transition between load and save failed this test 3/3 isolated and 1/1 in a full run. |
+| AC-071 (T-09 should-fix) | `DeleteTodo_NeverLoadsThenRemoves_AC071` | yes. It is deterministic: `load_remove` failed it 5/5 in full parallel runs, where the old concurrent test only managed 9/11. |
+
+**Mutants** (scratch copy, full suite unless noted):
+| Mutant | Fails |
+|---|---|
+| `put_no_cc` (drop the PUT concurrency catch) | 2 (deterministic PUT, concurrent smoke) |
+| `cd_no_cc` (drop the complete/reopen try/catch) | 3 (deterministic complete, deterministic reopen, smoke) |
+| `both_no_cc` | 4 (3/3 full runs). The smoke test alone failed 5/5 isolated. |
+| `put_ok` (concurrency catch returns 200 with the stale body) | 1 (deterministic PUT) |
+| `cd_notfound_plain` (catch returns 409 problem) | 3 |
+| `cd_broad` (complete/reopen catch widened to `DbUpdateException`) | 1 (`CompleteTodo_WhenUpdateRejected_Returns500AndLeavesTodoOpen_AC073`, the trigger test) |
+| `put_broad` (PUT concurrency catch widened to `DbUpdateException`) | does not build (CS0160: the 787 catch becomes unreachable) |
+| `put_swap` (concurrency catch moved after the 787 catch) | 0. This is an equivalent mutant. See the notes. |
+| `load_remove` (delete loads, then `Remove` + `SaveChanges`) | 2 (5/5 full runs): the new deterministic pin and the old concurrent AC-071 test |
+
+**Carry-forwards closed:**
+- **Catch order on PUT.** The concurrency catch is at `TodosEndpoints.cs:193`, before the 787 catch at `:198`, as plan section 3 and the T-14 "Likely source files" entry require. The order is not observable, though. A `DbUpdateConcurrencyException` from "0 rows affected" has no `SqliteException` inner exception, so `IsForeignKeyViolation` is false and the swapped order behaves the same. The order the plan prescribes is still the right one: it reads correctly, and it stays correct if the filter is ever widened.
+- **Deterministic delete pin (T-09 should-fix).** Done, as described above.
+- **Minimality.** The production diff is exactly the two catches. Both return `TypedResults.Problem(statusCode: 404)`, which matches the existing null-load branch and is problem+json. Neither adds a pre-check or a re-insert. There is no `WithName`/`WithSummary`/`Produces*`/`WithTags` (T-15), no migration, and no other test file changed.
+- **Plan and ADR conformance.** This matches plan design point 5, sections 5 and 6, and the PUT check order (step 4). ADR-0008 is not touched: there is no contact query and the 787 mapping is unchanged.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Nit | test-writer | `tests/MicroCrm.Api.Tests/Integration/Todos/TodoRaceTests.cs:223` | The concurrent smoke test checks status codes only. Its 404/400 write responses don't go through `ProblemAssert`, although plan section 8 says every error test should. The 404 body on this path is already pinned by the three deterministic tests, so this is not a gap. | Optionally run non-2xx write responses through `ProblemAssert.IsProblemAsync(write, (int)write.StatusCode)`, wrapped in `using`. |
+
+**Notes:**
+- **No-op complete/reopen racing a delete.** This path returns 200 without saving. 200 is in the AC-070 set for complete/reopen, and plan line 277 accepts it explicitly. No row can be re-created, because nothing is written, and the AC's "a later GET is 404 when the delete returned 204" still holds. It's acceptable, and there's no test for it, which is consistent with the plan.
+- **tasks.md drift (route to `/document`).** T-14 lists both concurrent tests as Guards, but `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` was RED (it fails without the catches, see `both_no_cc`). Also add `DeleteTodo_NeverLoadsThenRemoves_AC071` to the traceability table. It isn't in the T-14 test list.
+- The gate/`RunGatedAsync` block is now repeated in 6 test classes. That's pre-existing test-side duplication. Consider extracting it into `Integration/Infrastructure` later. It is not a T-14 issue.

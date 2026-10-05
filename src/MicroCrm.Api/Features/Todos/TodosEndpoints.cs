@@ -190,6 +190,11 @@ public static class TodosEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The to-do was deleted between load and save (0 rows affected).
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound);
+        }
         catch (DbUpdateException ex) when (SqliteErrors.IsForeignKeyViolation(ex))
         {
             return UnknownContact();
@@ -227,7 +232,15 @@ public static class TodosEndpoints
 
         if (change(todo, time.GetUtcNow()))
         {
-            await db.SaveChangesAsync(ct);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // The to-do was deleted between load and save (0 rows affected).
+                return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound);
+            }
         }
 
         return TypedResults.Ok(TodoResponse.From(todo));

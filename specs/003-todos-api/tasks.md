@@ -494,7 +494,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-14: Races between writing a to-do and deleting it
+- [x] T-14: Races between writing a to-do and deleting it. Done: DbUpdateConcurrencyException -> 404 problem in PUT (before 787 catch) and complete/reopen; deterministic no-load-then-remove delete test (T-09 should-fix); review APPROVE (nit: concurrent test skips ProblemAssert on non-2xx)
   - **ACs:** AC-070, AC-069
   - **Depends on:** T-13
   - **Tests:** `TI/TodoRaceTests.cs` (new; the interceptor deletes the **to-do** through a separate connection, once):
