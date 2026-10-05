@@ -4,17 +4,17 @@ using static MicroCrm.Api.Common.TextNormalization;
 
 namespace MicroCrm.Api.Features.Todos;
 
-public sealed record TodoInput(string Title, string? Notes, DateOnly? DueDate)
+public sealed record TodoInput(string Title, string? Notes, DateOnly? DueDate, Guid? ContactId)
 {
     public const int TitleMax = 200, NotesMax = 4000;
 
     private const string DateFormat = "yyyy-MM-dd";
 
     public static (TodoInput? Input, Dictionary<string, string[]>? Errors) Parse(CreateTodoRequest request) =>
-        Parse(request.Title, request.Notes, request.DueDate);
+        Parse(request.Title, request.Notes, request.DueDate, request.ContactId);
 
     private static (TodoInput? Input, Dictionary<string, string[]>? Errors) Parse(
-        string? rawTitle, string? rawNotes, string? rawDueDate)
+        string? rawTitle, string? rawNotes, string? rawDueDate, string? rawContactId)
     {
         var errors = new Dictionary<string, string[]>();
 
@@ -45,9 +45,23 @@ public sealed record TodoInput(string Title, string? Notes, DateOnly? DueDate)
             }
         }
 
+        Guid? contactId = null;
+        var rawContact = TrimToNull(rawContactId);
+        if (rawContact is not null)
+        {
+            if (Guid.TryParse(rawContact, out var parsedContact))
+            {
+                contactId = parsedContact;
+            }
+            else
+            {
+                errors["contactId"] = ["Must be a valid GUID."];
+            }
+        }
+
         return errors.Count > 0
             ? (null, errors)
-            : (new TodoInput(title!, notes, dueDate), null);
+            : (new TodoInput(title!, notes, dueDate, contactId), null);
     }
 
     private static bool TryParseDate(string value, out DateOnly date) =>

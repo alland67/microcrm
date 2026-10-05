@@ -36,12 +36,24 @@ public static class TodosEndpoints
             Title = input.Title,
             Notes = input.Notes,
             DueDate = input.DueDate,
+            ContactId = input.ContactId,
             CreatedAt = now,
             UpdatedAt = now,
         };
 
         db.Todos.Add(todo);
-        await db.SaveChangesAsync(ct);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (SqliteErrors.IsForeignKeyViolation(ex))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["contactId"] = ["Must refer to an existing contact."],
+            });
+        }
 
         return TypedResults.Created($"/api/todos/{todo.Id}", TodoResponse.From(todo));
     }

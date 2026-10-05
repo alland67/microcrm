@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using MicroCrm.Api.Tests.Integration.Infrastructure;
 
@@ -47,5 +48,69 @@ public sealed class TodoErrorHandlingTests(ApiFactory factory) : IClassFixture<A
         var response = await client.GetAsync($"/api/todos/{Guid.CreateVersion7()}", Ct);
 
         await AssertSafe500Async(response);
+    }
+}
+
+// Own fixture: installs a BEFORE INSERT trigger on the shared in-memory database and drops it in finally.
+public sealed class CreateTodoNonForeignKeyFailureTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private async Task<string> SnapshotAsync()
+    {
+        await using var connection = await TodoStoreTests.OpenAsync(factory.ConnectionString);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT 'T|' || Id || '|' || Title || '|' || ifnull(ContactId, '-') || '|' || UpdatedAt FROM Todos " +
+            "UNION ALL SELECT 'C|' || Id FROM Contacts ORDER BY 1";
+        await using var reader = await command.ExecuteReaderAsync(Ct);
+        var lines = new List<string>();
+        while (await reader.ReadAsync(Ct))
+        {
+            lines.Add(reader.GetString(0));
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    // AC-073 + ADR-0008: a constraint failure that is not a foreign key (trigger abort, extended code 1811)
+    // must stay a safe 500; only extended code 787 maps to the contactId 400.
+    [Fact]
+    public async Task CreateTodo_WhenNonForeignKeyConstraintFails_Returns500NotContactError_AC073()
+    {
+        _ = factory.Server;
+        using var client = factory.CreateClient();
+        var contactId = await TodoStoreTests.CreateContactAsync(client, "Trigger", $"trigger.{Guid.NewGuid():N}@example.com");
+        var existing = await client.PostAsJsonAsync("/api/todos", new { title = "Pre-existing", contactId }, Ct);
+        Assert.Equal(System.Net.HttpStatusCode.Created, existing.StatusCode);
+        var before = await SnapshotAsync();
+
+        await factory.ExecuteSqlAsync(
+            "CREATE TRIGGER trg_fail_insert_todo BEFORE INSERT ON Todos BEGIN SELECT RAISE(ABORT, 'x'); END");
+        HttpResponseMessage response;
+        string body;
+        try
+        {
+            response = await client.PostAsJsonAsync("/api/todos", new { title = "Doomed", contactId }, Ct);
+            body = await response.Content.ReadAsStringAsync(Ct);
+        }
+        finally
+        {
+            await factory.ExecuteSqlAsync("DROP TRIGGER IF EXISTS trg_fail_insert_todo");
+        }
+
+        Assert.Equal(500, (int)response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal(500, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.False(problem.RootElement.TryGetProperty("errors", out _), "A non-FK failure must not become a validation error");
+        Assert.DoesNotContain("existing contact", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("contactId", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sqlite", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("RAISE", body, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(before, await SnapshotAsync());
     }
 }

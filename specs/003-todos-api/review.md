@@ -175,3 +175,54 @@
 - **AC-012 strictness is still pinned.** M4 (lenient `TryParse`) was run without the pre-checks and failed 11 tests. The other mutants didn't touch the date path, so their results stand.
 - **No tests were changed.** `TodoInputTests.cs` has the same diff (+76 lines), `CreateTodoValidationTests.cs` is untouched, and the test count is unchanged at 361.
 - No new findings.
+
+## T-04: 2026-10-05: APPROVE
+
+**Checks:** tests pass, backend 399/399 · lint pass (`dotnet format MicroCrm.slnx --verify-no-changes --no-restore` exit 0; no web changes) · typecheck n/a (no web changes)
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-007 | `CreateTodo_WithExistingContactId_LinksAndReturnsIt_AC007` (201 body + GET + raw row), `CreateTodo_ContactIdInOtherGuidFormats_LinksAndReturnsCanonical_AC007` (N/B/upper, padded) | yes: killed by `no_assign`, `drop_contact_on_success`, `exact_D` |
+| AC-008 | `CreateTodo_ContactIdOmittedNullOrBlank_IsUnlinked_AC008` (4 bodies, raw row NULL), `Parse_ContactId_ParsesGuidOrBlankToNull_AC008` (8 rows) | yes: killed by `no_trim` and `trim_only` (the "" → null only variant) |
+| AC-013 (create) | `CreateTodo_MalformedContactId_Returns400ValidGuid_AC013` (4 rows, row count unchanged), `Parse_MalformedContactId_ReturnsGuidMessage_AC013` (3 rows) | yes: exact message, killed by `guid_msg` |
+| AC-014 (with contactId) | `CreateTodo_InvalidFieldsIncludingContactId_ReportsAll_AC014`, `CreateTodo_ContactIdPlusOneOtherInvalidField_ReportsBoth_AC014` (2 rows), `Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014` (3 rows), `Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014` | yes: the T-03 follow-up is met. An early return before contactId, a contactId short-circuit after the other rules, and a contactId check placed first that returns early each fail 7 tests |
+| AC-016 | `CreateTodo_UnknownContactId_Returns400MustReferToExistingContact_AC016` (v7 GUID, row count unchanged) | yes: killed by `fk_msg`, `fk_key`, `no_assign` |
+| AC-017 | guard `CreateTodo_FieldErrorAndUnknownContact_ReportsOnlyFieldErrors_AC017` | yes: `ProblemAssert.IsProblemAsync` compares the exact key set, so any `contactId` entry fails it |
+| AC-062 | `DeleteContact_WithLinkedTodos_Returns204_AC062` | yes: linked precondition asserted (API + raw row) |
+| AC-063 (get) | `DeleteContact_LinkedTodosRemainWithNullContactAndOtherFieldsUnchanged_AC063` | yes: two to-dos, clock advanced 5 h, fresh client, every member except contactId compared by raw JSON (including `updatedAt`, `isDone`, `completedAt`) |
+| AC-064 | `DeleteContact_LeavesOtherContactsTodosAndUnlinkedTodosUnchanged_AC064` | yes: other contact's and unlinked to-dos compared byte-for-byte |
+| AC-066 (through the API) | `DeleteContactDirectlyInStore_ApiReturnsTodosUnlinked_AC066` | yes: raw `DELETE FROM Contacts`, then GET shows null with other fields unchanged |
+| AC-073 (create, non-FK) | `CreateTodo_WhenNonForeignKeyConstraintFails_Returns500NotContactError_AC073` (own fixture, BEFORE INSERT trigger dropped in `finally`, Todos+Contacts snapshot before/after) | yes: kills `fk_primary19` (1 fail), `fk_anySqlite` (2), `fk_anyDbUpdate` (2) |
+| AC-074 (create, contactId) | `CreateTodo_ContactIdMessages_FollowStyle_AC074` | yes: style helper plus exact message for both new messages |
+
+**Mutation (scratch copy, full backend suite per mutant):**
+| Mutant | Tests failed |
+|---|---|
+| `fk_primary19`: `IsForeignKeyViolation` matches primary code 19 | 1 |
+| `fk_anySqlite`: any inner `SqliteException` | 2 |
+| `fk_anyDbUpdate`: unfiltered `catch (DbUpdateException)` | 2 |
+| `no_assign`: handler doesn't set `ContactId` | 10 |
+| `drop_contact_on_success`: Parse returns null contactId | 14 |
+| `fk_msg` / `fk_key`: wrong FK message / key | 2 / 2 |
+| `early_before_contact`: early return before the contactId block | 7 |
+| `contact_short_circuit`: a malformed contactId returns only its own error | 7 |
+| `contact_first_return`: contactId checked first, returns early | 7 |
+| `exact_D`: `Guid.TryParseExact(..., "D")` | 4 |
+| `no_trim` / `trim_only` | 5 / 3 |
+| `guid_msg` | 15 |
+| `precheck`: add `db.Contacts.AnyAsync` before save | 0 (expected: only a race tells it apart from the FK path, and T-13 owns AC-067 races. The pre-check is NOT in the code; ADR-0008 forbids it) |
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Nit | test-writer | tests/MicroCrm.Api.Tests/Integration/Todos/CreateTodoContactLinkTests.cs:96, :137 | The guard comments describe the RED state ("the field isn't read yet", "contactId isn't read yet ... today"). Now that contactId is parsed they're stale and misleading. | Reword to the behavior pinned, e.g. "blank contactId means unlinked" and "contact existence is checked only after field rules pass". Optional. |
+
+**Notes:**
+- **787 mapping is exact.** `SqliteErrors.IsForeignKeyViolation` matches `SqliteExtendedErrorCode: 787` only (`SqliteErrors.cs:9,15`), next to the 2067 helper, as ADR-0008 and plan §3 require. Broadening it to primary code 19, any SqliteException, or any DbUpdateException is killed by the trigger test (1811).
+- **No contact pre-check query.** The handler adds, saves, and catches. There's no `Contacts` lookup anywhere in `Features/Todos/`.
+- **Minimality is clean.** There's no `MapPut`, no `UpdateTodoRequest` overload of Parse, no concurrency catch, and no `.WithName`/`.WithSummary`/`Produces*`/`.WithTags`. `Data/Migrations` has no changes since T-01 (only `CreateTodos`).
+- `TodoInput` matches the plan signature (`Guid? ContactId` as the 4th member) and parse rule (trim-to-null, `Guid.TryParse`, `Must be a valid GUID.`). The FK-path message is `Must refer to an existing contact.`. Both are ADR-0006-style and pinned by AC-074.
+- No existing test was changed or weakened. `TodoErrorHandlingTests.cs` and `TodoInputTests.cs` only add lines; the count went 361 → 399.
+- Test isolation: the trigger test has its own `IClassFixture<ApiFactory>` and drops the trigger in `finally`. The snapshot includes a linked pre-existing to-do, so "stored data unchanged" is non-trivial.
+- Extra tests beyond the tasks.md list (`CreateTodo_ContactIdInOtherGuidFormats_LinksAndReturnsCanonical_AC007`, `CreateTodo_ContactIdPlusOneOtherInvalidField_ReportsBoth_AC014`, `Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014`, `Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014`) need to be added to the traceability table at `/document`.

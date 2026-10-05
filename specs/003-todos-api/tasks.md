@@ -163,7 +163,7 @@ Test names follow `Method_Scenario_Expected_ACnnn`.
 
     Suite green.
 
-- [ ] T-04: Link a new to-do to a contact; deleting the contact unlinks it
+- [x] T-04: Link a new to-do to a contact; deleting the contact unlinks it. Done: TodoInput.ContactId, 787-only FK mapping to 400 contactId, no pre-check; review APPROVE (1 nit: stale guard comments, deferred to T-05)
   - **ACs:** AC-007, AC-008, AC-013 (create), AC-014 (with `contactId`), AC-016, AC-017, AC-062, AC-063 (get), AC-064, AC-066 (through the API), AC-073 (create, non-FK constraint), AC-074 (create, `contactId`)
   - **Depends on:** T-03
   - **Tests:**

@@ -128,4 +128,78 @@ public sealed class TodoInputTests
         Assert.Equal(["Must be 4000 characters or fewer."], errors["notes"]);
         Assert.Equal([DateMessage], errors["dueDate"]);
     }
+
+    private const string GuidMessage = "Must be a valid GUID.";
+
+    [Theory]
+    [InlineData("0f8fad5b-d9cb-469f-a165-70867728950e", "0f8fad5b-d9cb-469f-a165-70867728950e")]
+    [InlineData("  0F8FAD5B-D9CB-469F-A165-70867728950E\t", "0f8fad5b-d9cb-469f-a165-70867728950e")]
+    [InlineData("0f8fad5bd9cb469fa16570867728950e", "0f8fad5b-d9cb-469f-a165-70867728950e")]
+    [InlineData("{0f8fad5b-d9cb-469f-a165-70867728950e}", "0f8fad5b-d9cb-469f-a165-70867728950e")]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData("\t\n", null)]
+    public void Parse_ContactId_ParsesGuidOrBlankToNull_AC008(string? value, string? expected)
+    {
+        var (input, errors) = TodoInput.Parse(Valid with { ContactId = value });
+
+        Assert.Null(errors);
+        Assert.NotNull(input);
+        Assert.Equal(expected is null ? null : Guid.Parse(expected), input.ContactId);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("123")]
+    [InlineData("0f8fad5b-d9cb-469f-a165")]
+    public void Parse_MalformedContactId_ReturnsGuidMessage_AC013(string value)
+    {
+        var (input, errors) = TodoInput.Parse(Valid with { ContactId = value });
+
+        Assert.Null(input);
+        Assert.NotNull(errors);
+        var entry = Assert.Single(errors);
+        Assert.Equal("contactId", entry.Key);
+        Assert.Equal([GuidMessage], entry.Value);
+    }
+
+    // contactId must not short-circuit the other rules, nor be skipped when another rule fails first.
+    [Theory]
+    [InlineData("title")]
+    [InlineData("notes")]
+    [InlineData("dueDate")]
+    public void Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014(string other)
+    {
+        var request = Valid with { ContactId = "abc" };
+        request = other switch
+        {
+            "title" => request with { Title = "  " },
+            "notes" => request with { Notes = new string('b', 4001) },
+            _ => request with { DueDate = "nope" },
+        };
+
+        var (input, errors) = TodoInput.Parse(request);
+
+        Assert.Null(input);
+        Assert.NotNull(errors);
+        Assert.Equal(
+            new[] { other, "contactId" }.Order(StringComparer.Ordinal).ToArray(),
+            errors.Keys.Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal([GuidMessage], errors["contactId"]);
+    }
+
+    [Fact]
+    public void Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014()
+    {
+        var (input, errors) = TodoInput.Parse(new CreateTodoRequest("  ", new string('b', 4001), "nope", "abc"));
+
+        Assert.Null(input);
+        Assert.NotNull(errors);
+        Assert.Equal(["contactId", "dueDate", "notes", "title"], errors.Keys.Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(["Required."], errors["title"]);
+        Assert.Equal(["Must be 4000 characters or fewer."], errors["notes"]);
+        Assert.Equal([DateMessage], errors["dueDate"]);
+        Assert.Equal([GuidMessage], errors["contactId"]);
+    }
 }
