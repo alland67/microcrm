@@ -719,3 +719,262 @@
 - The default tag is `TodosEndpoints` (the class name), the same as `ContactsEndpoints`. This is not an NFR requirement.
 - The table-driven test style differs from the per-operation contacts facts. That's acceptable and easier to read; no action.
 - Route to `/document`: fill the tasks.md Traceability column for NFR-001 with the three tests above.
+
+## FINAL: 2026-10-05: CHANGES_REQUESTED
+
+Scope: the whole of spec 003 on `feat/003-todos-api` at 8f2223b (`git diff main...HEAD`: 16 commits, 46 files). D-01 (docs) has not started yet, so doc drift is listed under the `/document` roll-up and is not counted as a finding.
+
+**Checks:** backend 647/647 pass (`dotnet test --solution MicroCrm.slnx`) · `dotnet format --verify-no-changes` exit 0 · web lint exit 0 · web typecheck exit 0 · web tests 1/1 · `dotnet ef migrations has-pending-model-changes`: none · `dotnet list package --vulnerable --include-transitive`: none · no skipped or disabled tests (`Skip`/`#if false` grep is clean).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Blocking | test-writer | `tests/MicroCrm.Api.Tests/Integration/Todos/CreateTodoTests.cs:228` (NFR-002); `CompleteReopenTodoTests.cs:48-66` | NFR-002 says `createdAt`/`updatedAt`/**`completedAt`** are ISO-8601 with a UTC offset, and its verification is "integration tests asserting raw JSON". Only `createdAt` and `updatedAt` are checked as raw strings (`UtcTimestamp(...)`). A non-null `completedAt` is only read through `GetDateTimeOffset()`, and `DateTimeOffset` equality ignores the offset. AC-031 compares the complete response with the GET body, but both go through `TodoResponse.From`, so a shared bug passes it. **Mutant:** `todo.CompletedAt?.ToOffset(TimeSpan.FromHours(2))` in `TodoDtos.cs:25` passes **0/647**. The same mutant on `CreatedAt` fails the NFR002 test. ADR-0009 also promises that all three timestamps read back as `+00:00`. The production code is correct today (the probe shows `+00:00`); the gap is in the tests. | Add an NFR-002 test that completes a to-do and asserts on the **raw** response string (and the raw GET string): `"isDone":true` and `UtcTimestamp("completedAt")`. For example, `CompleteTodo_Json_CompletedAtHasUtcOffsetAndIsDoneIsBoolean_NFR002` in `CompleteReopenTodoTests`, with the regex helper moved or shared. It must fail on the mutant above. No production change. |
+| 2 | Nit | test-writer | `TodoErrorHandlingTests.cs` (`UpdateTodoNonForeignKeyFailureTests`) | AC-073's "stored data unchanged" half is pinned for complete (`CompleteTodo_WhenUpdateRejected_...`) but not for reopen. Reopen goes through the same `ChangeDoneState` path, so the risk is low. | Optionally turn the complete trigger test into a theory over `complete`/`reopen`, starting reopen from a done to-do. |
+| 3 | Nit | implementer | `src/MicroCrm.Api/Features/Todos/TodoListQuery.cs:16-17, :30-31` | `status?.Trim()` + `IsNullOrEmpty` re-implements `TextNormalization.TrimToNull`, which T-03 extracted for this purpose. It behaves the same. | Optionally use `TrimToNull` for `status` and `contactId`. |
+
+**1. Traceability (AC-001..AC-074, NFR-001..NFR-005).**
+- **Method:** I listed every `[Fact]`/`[Theory]` added on the branch (169 methods; all of them carry an `_ACnnn`/`_NFRnnn` suffix, and no method was added without an ID). I then compared them with tasks.md in both directions.
+- **Result:** every AC and NFR has at least one test named with its ID. Per-task mutation runs (T-01..T-15) plus this review's re-checks show that the named tests exercise the behavior. The one exception is the `completedAt` clause of NFR-002 (Finding 1).
+- **AC-072** is traced by name through `CreateTodo_Returns400AsProblemJson_AC072`, and in substance through `ProblemAssert.IsProblemAsync` (exact key set plus `application/problem+json`) in every to-do error test. I grepped for bare `HttpStatusCode.NotFound/BadRequest/InternalServerError` asserts. The three hits are either followed by `ProblemAssert` (`CompleteReopenTodoTests.cs:206`) or are follow-up GET checks, not the error under test (`UpdateTodoTests.cs:327`, `TodoContactLinkRaceTests.cs:174`).
+- **NFR-003 and NFR-004** are also verified manually (sections 3 and 4).
+- **Stale names in tasks.md** (forward check; `/document` must use the real names):
+  - `UpdateTodo_NonGuidId_Returns404_AC026` → `UpdateTodo_NonGuidId_Returns404Problem_AC026` (renamed when the T-07 Should-fix was applied)
+  - `CompleteTodo_WhenDatabaseFails_..._AC073` + `ReopenTodo_WhenDatabaseFails_..._AC073` → merged into the theory `CompleteOrReopenTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073`
+- **Tests not in any tasks.md test list** (reverse check, 18; `/document` adds them to the table):
+  - AC-005 `CreateTodo_WithDueDateTodayOrYesterday_ReturnsSameString_AC005`
+  - AC-007 `CreateTodo_ContactIdInOtherGuidFormats_LinksAndReturnsCanonical_AC007`
+  - AC-011 `CreateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011`, `UpdateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011`, `Parse_AtMax_AfterTrimming_IsAccepted_AC011`
+  - AC-014 `CreateTodo_ContactIdPlusOneOtherInvalidField_ReportsBoth_AC014`, `Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014`, `Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014`
+  - AC-026 `UpdateTodo_NonGuidId_Returns404Problem_AC026` (the rename above)
+  - AC-044 `ListTodos_SameDueDate_OrdersByCreatedAtNotId_AC044`
+  - AC-057 `ListContactTodos_ContactIdQueryValue_IsIgnored_AC057`
+  - AC-058 `ListContactTodos_InvalidQuery_Returns400SameAsGlobalList_AC058`
+  - AC-060 `ListContactTodos_UnknownRandomGuid_Returns404Problem_AC060`
+  - AC-067 `CreateTodo_WithContact_SendsNoContactLookup_AC067`, `UpdateTodo_WithContact_SendsNoContactLookup_AC067`
+  - AC-071 `DeleteTodo_NeverLoadsThenRemoves_AC071`
+  - AC-072 `CreateTodo_Returns400AsProblemJson_AC072`
+  - AC-073 `CompleteOrReopenTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (the merge above)
+- **Traceability table for `/document`.** Paste this into the tasks.md "Test(s)" column. Rows marked **[not in tasks.md]** are the reverse-check additions. Add the Finding 1 test to the NFR-002 row once it exists.
+
+| ID | Test(s) (file) |
+|---|---|
+| AC-001 | `CreateTodo_ThenGet_ReturnsSameValuesOnNewConnections_AC001` (CreateTodoTests)<br>`CreateTodo_WithTitleNotesAndDueDate_Returns201WithLocationAndBody_AC001` (CreateTodoTests) |
+| AC-002 | `CreateTodo_WithOnlyTitle_ReturnsNullsAndIsDoneFalse_AC002` (CreateTodoTests) |
+| AC-003 | `CreateTodo_IgnoresBodyIdTimestampsAndDoneState_AC003` (CreateTodoTests) |
+| AC-004 | `CreateTodo_WithSurroundingWhitespace_StoresTrimmed_AC004` (CreateTodoTests)<br>`Parse_TrimsTitleAndNotes_BlankNotesBecomeNull_AC004` (TodoInputTests) |
+| AC-005 | `CreateTodo_WithDueDateTodayOrYesterday_ReturnsSameString_AC005` (CreateTodoTests) **[not in tasks.md]**<br>`CreateTodo_WithValidDueDate_ReturnsSameString_AC005` (CreateTodoTests)<br>`Parse_ValidDueDate_ReturnsDateOnly_AC005` (TodoInputTests) |
+| AC-006 | `CreateTodo_DueDateOmittedNullOrBlank_IsNull_AC006` (CreateTodoTests)<br>`Parse_BlankDueDate_ReturnsNull_AC006` (TodoInputTests) |
+| AC-007 | `CreateTodo_ContactIdInOtherGuidFormats_LinksAndReturnsCanonical_AC007` (CreateTodoContactLinkTests) **[not in tasks.md]**<br>`CreateTodo_WithExistingContactId_LinksAndReturnsIt_AC007` (CreateTodoContactLinkTests) |
+| AC-008 | `CreateTodo_ContactIdOmittedNullOrBlank_IsUnlinked_AC008` (CreateTodoContactLinkTests)<br>`Parse_ContactId_ParsesGuidOrBlankToNull_AC008` (TodoInputTests) |
+| AC-009 | `CreateTodo_FieldsAtMax_Returns201_AC009` (CreateTodoTests) |
+| AC-010 | `CreateTodo_WithoutTitle_Returns400Required_AC010` (CreateTodoValidationTests)<br>`Parse_MissingTitle_ReturnsRequired_AC010` (TodoInputTests)<br>`UpdateTodo_WithoutTitle_Returns400Required_AC010` (UpdateTodoValidationTests) |
+| AC-011 | `CreateTodo_FieldOverMax_Returns400_AC011` (CreateTodoValidationTests)<br>`CreateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011` (CreateTodoValidationTests) **[not in tasks.md]**<br>`Parse_AtMax_AfterTrimming_IsAccepted_AC011` (TodoInputTests) **[not in tasks.md]**<br>`Parse_OverMax_ReturnsMaxMessage_AC011` (TodoInputTests)<br>`UpdateTodo_FieldOverMax_Returns400_AC011` (UpdateTodoValidationTests)<br>`UpdateTodo_OnlyNotesOverMax_ReportsOnlyNotes_AC011` (UpdateTodoValidationTests) **[not in tasks.md]** |
+| AC-012 | `CreateTodo_InvalidDueDate_Returns400WithDueDateError_AC012` (CreateTodoValidationTests)<br>`Parse_InvalidDueDate_ReturnsDateMessage_AC012` (TodoInputTests)<br>`UpdateTodo_InvalidDueDate_Returns400_AC012` (UpdateTodoValidationTests) |
+| AC-013 | `CreateTodo_MalformedContactId_Returns400ValidGuid_AC013` (CreateTodoContactLinkTests)<br>`Parse_MalformedContactId_ReturnsGuidMessage_AC013` (TodoInputTests)<br>`UpdateTodo_MalformedContactId_Returns400_AC013` (UpdateTodoValidationTests) |
+| AC-014 | `CreateTodo_ContactIdPlusOneOtherInvalidField_ReportsBoth_AC014` (CreateTodoContactLinkTests) **[not in tasks.md]**<br>`CreateTodo_InvalidFieldsIncludingContactId_ReportsAll_AC014` (CreateTodoContactLinkTests)<br>`CreateTodo_MultipleInvalidFields_ReportsAllCamelCaseKeys_AC014` (CreateTodoValidationTests)<br>`Parse_AllFourFieldsInvalid_ReturnsAllFourKeys_AC014` (TodoInputTests) **[not in tasks.md]**<br>`Parse_ContactIdWithOneOtherInvalidField_ReportsBoth_AC014` (TodoInputTests) **[not in tasks.md]**<br>`Parse_MultipleErrors_ReturnsAllKeys_AC014` (TodoInputTests)<br>`UpdateTodo_MultipleInvalidFields_ReportsAll_AC014` (UpdateTodoValidationTests) |
+| AC-015 | `CreateTodo_MalformedBody_Returns400Problem_AC015` (CreateTodoValidationTests)<br>`UpdateTodo_MalformedBody_Returns400Problem_AC015` (UpdateTodoValidationTests) |
+| AC-016 | `CreateTodo_UnknownContactId_Returns400MustReferToExistingContact_AC016` (CreateTodoContactLinkTests) |
+| AC-017 | `CreateTodo_FieldErrorAndUnknownContact_ReportsOnlyFieldErrors_AC017` (CreateTodoContactLinkTests) |
+| AC-018 | `GetTodo_Existing_Returns200WithShape_AC018` (GetTodoByIdTests) |
+| AC-019 | `GetTodo_NonGuidId_Returns404Problem_AC019` (GetTodoByIdTests)<br>`GetTodo_UnknownGuid_Returns404Problem_AC019` (GetTodoByIdTests) |
+| AC-020 | `ListTodos_ShowsUpdatedValues_AC020` (ListTodosTests)<br>`UpdateTodo_ThenGet_ReturnsPersistedValuesOnNewConnections_AC020` (UpdateTodoTests)<br>`UpdateTodo_WithValidBody_Returns200WithUpdatedTodo_AC020` (UpdateTodoTests) |
+| AC-021 | `UpdateTodo_OptionalFieldOmittedNullOrBlank_StoredAsNull_AC021` (UpdateTodoTests) |
+| AC-022 | `UpdateTodo_IgnoresBodyIdTimestampsAndDoneState_AC022` (UpdateTodoTests) |
+| AC-023 | `UpdateTodo_SetsUpdatedAtFromClock_EvenWhenUnchanged_AC023` (UpdateTodoTests) |
+| AC-024 | `UpdateTodo_LinksToContact_FromUnlinkedOrOtherContact_AC024` (UpdateTodoTests) |
+| AC-025 | `UpdateTodo_AtMaxWithWhitespace_StoresTrimmed_AC025` (UpdateTodoTests) |
+| AC-026 | `UpdateTodo_NonGuidId_Returns404Problem_AC026` (UpdateTodoTests) **[not in tasks.md: renamed]**<br>`UpdateTodo_UnknownGuid_Returns404AndCreatesNothing_AC026` (UpdateTodoTests) |
+| AC-027 | `UpdateTodo_InvalidBodyToUnknownId_Returns400_AC027` (UpdateTodoValidationTests) |
+| AC-028 | `UpdateTodo_UnknownContactToUnknownTodo_Returns404_AC028` (UpdateTodoTests) |
+| AC-029 | `UpdateTodo_UnknownContactId_Returns400AndLeavesTodoUnchanged_AC029` (UpdateTodoTests) |
+| AC-030 | `UpdateTodo_LeavesOtherTodosAndContactsUnchanged_AC030` (UpdateTodoTests) |
+| AC-031 | `CompleteTodo_Open_Returns200DoneWithCompletedAtNow_AC031` (CompleteReopenTodoTests)<br>`Complete_Open_SetsDoneAndTimestamps_ReturnsTrue_AC031` (TodoTests) |
+| AC-032 | `CompleteTodo_AlreadyDone_Returns200Unchanged_AC032` (CompleteReopenTodoTests)<br>`Complete_AlreadyDone_ChangesNothing_ReturnsFalse_AC032` (TodoTests) |
+| AC-033 | `ReopenTodo_Done_Returns200OpenWithUpdatedAtNow_AC033` (CompleteReopenTodoTests)<br>`Reopen_Done_ClearsCompletedAtAndSetsUpdatedAt_ReturnsTrue_AC033` (TodoTests) |
+| AC-034 | `ReopenTodo_AlreadyOpen_Returns200Unchanged_AC034` (CompleteReopenTodoTests)<br>`Reopen_AlreadyOpen_ChangesNothing_ReturnsFalse_AC034` (TodoTests) |
+| AC-035 | `CompleteAndReopen_ChangeOnlyDoneStateAndIgnoreBody_AC035` (CompleteReopenTodoTests) |
+| AC-036 | `CompleteOrReopen_UnknownOrNonGuidId_Returns404_AC036` (CompleteReopenTodoTests) |
+| AC-037 | `UpdateTodo_WhenDone_KeepsDoneAndCompletedAt_AC037` (CompleteReopenTodoTests) |
+| AC-038 | `DeleteTodo_Existing_Returns204WithEmptyBody_AC038` (DeleteTodoTests)<br>`DeleteTodo_ThenGet_Returns404OnNewConnections_AC038` (DeleteTodoTests)<br>`ListTodos_ExcludesDeletedTodo_AC038` (ListTodosTests) |
+| AC-039 | `DeleteTodo_NonGuidId_Returns404AndDeletesNothing_AC039` (DeleteTodoTests)<br>`DeleteTodo_UnknownOrAlreadyDeleted_Returns404Problem_AC039` (DeleteTodoTests) |
+| AC-040 | `DeleteTodo_LeavesContactAndOtherTodosUnchanged_AC040` (DeleteTodoTests) |
+| AC-041 | `UpdateCompleteReopen_AfterDelete_Return404AndDoNotRecreate_AC041` (DeleteTodoTests) |
+| AC-042 | `ListTodos_NoParameters_ReturnsDefaultEnvelope_AC042` (ListTodosTests)<br>`Parse_Defaults_Page1PageSize20NoFilters_AC042` (TodoListQueryTests) |
+| AC-043 | `ListTodos_Empty_ReturnsEmptyItemsAndZeroTotal_AC043` (ListTodosTests) |
+| AC-044 | `ListTodos_OrdersByDueDateNullsLastThenCreatedAtThenId_AC044` (ListTodosTests)<br>`ListTodos_SameDueDate_OrdersByCreatedAtNotId_AC044` (ListTodosTests) **[not in tasks.md]**<br>`Store_TodosColumns_MatchPlannedTypes_AC044` (TodoStoreTests) |
+| AC-045 | `ListTodos_AllPages_ReturnEveryTodoExactlyOnceWithTies_AC045` (ListTodosPagingTests)<br>`ListTodos_PageBeyondLast_ReturnsEmptyItems_AC045` (ListTodosPagingTests)<br>`ListTodos_PageSize100_IsAccepted_AC045` (ListTodosPagingTests)<br>`ListTodos_PageSlices_EchoPagingAndTotal_AC045` (ListTodosPagingTests) |
+| AC-046 | `ListTodos_InvalidPageOrPageSize_Returns400_AC046` (ListTodosPagingTests)<br>`Parse_InvalidPagingValues_ReturnSameMessagesAsContacts_AC046` (TodoListQueryTests) |
+| AC-047 | `ListTodos_StatusOpen_ReturnsOnlyOpenIncludingOverdue_AC047` (ListTodosFilterTests) |
+| AC-048 | `ListTodos_StatusDone_ReturnsOnlyDone_AC048` (ListTodosFilterTests) |
+| AC-049 | `ListTodos_StatusOverdue_ReturnsOnlyOpenPastDue_AC049` (ListTodosFilterTests) |
+| AC-050 | `ListTodos_Overdue_IncludesTodoDueYesterdayAfterUtcMidnight_AC050` (OverdueClockTests) |
+| AC-051 | `ListTodos_StatusBlankOrDifferentCase_AC051` (ListTodosFilterTests)<br>`Parse_Status_TrimmedCaseInsensitiveBlankMeansNone_AC051` (TodoListQueryTests) |
+| AC-052 | `ListTodos_StatusUnknown_Returns400_AC052` (ListTodosFilterTests)<br>`Parse_UnknownStatus_ReturnsOneOfMessage_AC052` (TodoListQueryTests) |
+| AC-053 | `ListTodos_ContactIdFilter_ReturnsOnlyThatContactsTodos_AC053` (ListTodosFilterTests)<br>`Parse_ContactId_GuidOrBlank_AC053` (TodoListQueryTests) |
+| AC-054 | `ListTodos_MalformedContactId_Returns400_AC054` (ListTodosFilterTests)<br>`Parse_MalformedContactId_ReturnsGuidMessage_AC054` (TodoListQueryTests) |
+| AC-055 | `ListTodos_CombinedFilters_MatchAllOrderedAndPaged_AC055` (ListTodosFilterTests) |
+| AC-056 | `ListTodos_AllQueryParametersInvalid_ReportsAll_AC056` (ListTodosFilterTests)<br>`ListTodos_InvalidPageAndPageSize_ReportsBoth_AC056` (ListTodosPagingTests)<br>`Parse_AllInvalid_ReportsEveryParameter_AC056` (TodoListQueryTests) |
+| AC-057 | `ListContactTodos_ContactIdQueryValue_IsIgnored_AC057` (ListContactTodosTests) **[not in tasks.md]**<br>`ListContactTodos_ExistingContact_ReturnsOnlyItsTodosOrdered_AC057` (ListContactTodosTests) |
+| AC-058 | `ListContactTodos_InvalidQuery_Returns400SameAsGlobalList_AC058` (ListContactTodosTests) **[not in tasks.md]**<br>`ListContactTodos_PagingAndStatus_AppliedLikeGlobalList_AC058` (ListContactTodosTests) |
+| AC-059 | `ListContactTodos_NoTodos_ReturnsEmptyItemsAndZeroTotal_AC059` (ListContactTodosTests) |
+| AC-060 | `ListContactTodos_UnknownOrNonGuidContact_Returns404Problem_AC060` (ListContactTodosTests)<br>`ListContactTodos_UnknownRandomGuid_Returns404Problem_AC060` (ListContactTodosTests) **[not in tasks.md]** |
+| AC-061 | `ListContactTodos_InvalidQueryForUnknownContact_Returns400_AC061` (ListContactTodosTests) |
+| AC-062 | `DeleteContact_WithLinkedTodos_Returns204AndUnlinks_AC062` (TodoStoreTests)<br>`DeleteContact_WithLinkedTodos_Returns204_AC062` (ContactDeleteUnlinksTodosTests) |
+| AC-063 | `DeleteContact_LinkedTodosRemainWithNullContactAndOtherFieldsUnchanged_AC063` (ContactDeleteUnlinksTodosTests)<br>`ListTodos_AfterContactDelete_ShowsTodosUnlinkedAndOtherwiseUnchanged_AC063` (ListTodosTests) |
+| AC-064 | `DeleteContact_LeavesOtherContactsTodosAndUnlinkedTodosUnchanged_AC064` (ContactDeleteUnlinksTodosTests) |
+| AC-065 | `DeleteContact_FailsAfterUnlink_RollsBackRemovalAndUnlink_AC065` (ContactDeleteAtomicityTests)<br>`DeleteContact_FailsDuringUnlink_RollsBackRemoval_AC065` (ContactDeleteAtomicityTests)<br>`DeleteContacts_ConcurrentObserver_NeverSeesDanglingLink_AC065` (TodoContactLinkRaceTests) |
+| AC-066 | `Api_ForeignKeysDisabledInConnectionString_StillEnforced_AC066` (TodoStoreTests)<br>`DeleteContactDirectlyInStore_ApiReturnsTodosUnlinked_AC066` (ContactDeleteUnlinksTodosTests)<br>`Store_DeletingContactDirectly_UnlinksTodosAndKeepsOtherColumns_AC066` (TodoStoreTests)<br>`Store_TestConnections_HaveForeignKeysOn_AC066` (TodoStoreTests)<br>`Store_TodosContactId_IsForeignKeyToContactsWithSetNull_AC066` (TodoStoreTests) |
+| AC-067 | `CreateTodo_ContactDeletedBeforeSave_Returns400AndCreatesNothing_AC067` (TodoContactLinkRaceTests)<br>`CreateTodo_WithContact_SendsNoContactLookup_AC067` (TodoContactLinkRaceTests) **[not in tasks.md]**<br>`CreateUpdateAndContactDelete_Concurrent_NoDanglingLinks_AC067` (TodoContactLinkRaceTests)<br>`Store_LinkToMissingContact_IsRejectedByStore_AC067` (TodoStoreTests)<br>`UpdateTodo_KeptContactDeletedBeforeSave_Returns400AndTodoIsUnlinked_AC067` (TodoContactLinkRaceTests)<br>`UpdateTodo_NewContactDeletedBeforeSave_Returns400AndLeavesTodoUnchanged_AC067` (TodoContactLinkRaceTests)<br>`UpdateTodo_WithContact_SendsNoContactLookup_AC067` (TodoContactLinkRaceTests) **[not in tasks.md]** |
+| AC-068 | `ListContactTodos_DeletedContact_Returns404_AC068` (ListContactTodosTests)<br>`ListTodos_ContactIdOfDeletedContact_ExcludesFormerTodos_AC068` (ListTodosFilterTests) |
+| AC-069 | `CompleteAndReopen_Concurrent_AllOkAndStateConsistent_AC069` (TodoRaceTests)<br>`Store_InconsistentDoneState_IsRejectedByStore_AC069` (TodoStoreTests) |
+| AC-070 | `CompleteTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070` (TodoRaceTests)<br>`ReopenTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070` (TodoRaceTests)<br>`UpdateTodo_DeletedBetweenLoadAndSave_Returns404AndStaysDeleted_AC070` (TodoRaceTests)<br>`WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` (TodoRaceTests) |
+| AC-071 | `DeleteTodo_ConcurrentSameId_ExactlyOne204Rest404_AC071` (DeleteTodoTests)<br>`DeleteTodo_NeverLoadsThenRemoves_AC071` (TodoRaceTests) **[not in tasks.md]** |
+| AC-072 | `CreateTodo_Returns400AsProblemJson_AC072` (CreateTodoValidationTests) **[not in tasks.md]**; plus every to-do error test via `ProblemAssert.IsProblemAsync`; plus `OpenApi_TodoEndpoints_ErrorResponsesAreProblemJson_NFR001` (documented content type) |
+| AC-073 | `CompleteOrReopenTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests) **[not in tasks.md: merged]**<br>`CompleteOrReopenTodo_WhenUpdateRejected_Returns500AndLeavesTodoUnchanged_AC073` (TodoErrorHandlingTests) **[not in tasks.md: replaces `CompleteTodo_WhenUpdateRejected_Returns500AndLeavesTodoOpen_AC073`, fix cycle 1]**<br>`CreateTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests)<br>`CreateTodo_WhenNonForeignKeyConstraintFails_Returns500NotContactError_AC073` (TodoErrorHandlingTests)<br>`DeleteTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests)<br>`DeleteTodo_WhenDatabaseRejects_Returns500AndTodoStillExists_AC073` (TodoErrorHandlingTests)<br>`GetTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests)<br>`ListContactTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests)<br>`ListTodos_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests)<br>`UpdateTodo_WhenDatabaseFails_Returns500ProblemWithoutDetails_AC073` (TodoErrorHandlingTests)<br>`UpdateTodo_WhenNonForeignKeyConstraintFails_Returns500AndLeavesTodoUnchanged_AC073` (TodoErrorHandlingTests) |
+| AC-074 | `CreateTodo_ContactIdMessages_FollowStyle_AC074` (CreateTodoContactLinkTests)<br>`CreateTodo_ValidationMessages_FollowStyle_AC074` (CreateTodoValidationTests)<br>`ListContactTodos_ValidationMessages_FollowStyle_AC074` (ListContactTodosTests)<br>`ListTodos_FilterMessages_FollowStyle_AC074` (ListTodosFilterTests)<br>`ListTodos_ValidationMessages_FollowStyle_AC074` (ListTodosPagingTests)<br>`UpdateTodo_ValidationMessages_FollowStyle_AC074` (UpdateTodoValidationTests) |
+| NFR-001 | `OpenApi_TodoEndpoints_DocumentStatusCodes_NFR001` (OpenApiTests)<br>`OpenApi_TodoEndpoints_ErrorResponsesAreProblemJson_NFR001` (OpenApiTests)<br>`OpenApi_TodoEndpoints_HaveOperationIdsAndSummaries_NFR001` (OpenApiTests) |
+| NFR-002 | `CreateTodo_Json_IsCamelCaseWithNullsDateOnlyAndUtcOffsets_NFR002` (CreateTodoTests)<br>`CompleteTodo_Json_CompletedAtHasUtcOffsetAndIsDoneIsBoolean_NFR002` (CompleteReopenTodoTests) **[not in tasks.md: added in FINAL fix cycle 1]** |
+| NFR-003 | `Store_TodosIndexes_SupportUnlinkAndFilters_NFR003` (TodoStoreTests); manual measurement below |
+| NFR-004 | `CreateTodo_TitleAndNotesNotLoggedAtInformationOrAbove_NFR004` (CreateTodoTests); reviewer inspection below |
+| NFR-005 | `Parse_UpdateAndCreateRequests_ProduceIdenticalErrors_NFR005` (TodoInputTests)<br>`UpdateTodo_SameInvalidPayload_SameErrorsAsCreate_NFR005` (UpdateTodoValidationTests) |
+
+**2. Spec 002's five delete-unlink rules (spec 002 "Decision"; AC-062..AC-066).** All five are enforced by the store and tested.
+- **Mechanism:**
+  - `FK_Todos_Contacts_ContactId ... ON DELETE SET NULL` (verified in the generated SQL and with `PRAGMA foreign_key_list`);
+  - `Program.cs` forces `Foreign Keys=True`;
+  - the contact delete is still the unchanged single `ExecuteDeleteAsync` (`ContactsEndpoints.cs:181`; `Features/Contacts` diff is only the `TrimToNull` move).
+
+| Spec 002 rule | ACs | Tests | Evidence |
+|---|---|---|---|
+| Former to-dos still exist with a `null` link | AC-063, AC-066 | `DeleteContact_LinkedTodosRemain..._AC063`, `ListTodos_AfterContactDelete..._AC063` (includes a completed to-do; `updatedAt` unchanged, Q6), `Store_DeletingContactDirectly..._AC066` | Cascade mutant (below) fails all of them. Probe: after `DELETE /api/contacts/{id}`, `GET /api/todos/{id}` returned `contactId: null` with the original `updatedAt`. |
+| Delete still returns 204 with to-dos | AC-062 | `DeleteContact_WithLinkedTodos_Returns204_AC062`, `..._Returns204AndUnlinks_AC062` | Both assert the to-do is linked before the delete. |
+| To-dos of other contacts and unlinked ones are unaffected | AC-064 | `DeleteContact_LeavesOtherContactsTodosAndUnlinkedTodosUnchanged_AC064` | Fails under Cascade. |
+| Delete and unlink are atomic | AC-065 | two trigger rollback tests + `DeleteContacts_ConcurrentObserver_NeverSeesDanglingLink_AC065` | At T-13 the non-atomic delete mutant was killed 8/8 isolated and 5/5 in full runs. |
+| Every delete path (bulk, nested, outside the API) | AC-066 | `Store_DeletingContactDirectly...`, `DeleteContactDirectlyInStore_ApiReturnsTodosUnlinked...`, `Api_ForeignKeysDisabledInConnectionString_StillEnforced...`, `Store_TestConnections_HaveForeignKeysOn...`, `Store_TodosContactId_IsForeignKeyToContactsWithSetNull...` | Enforced by the schema, so it covers any future bulk or nested path. |
+
+- **Re-verified with mutants at FINAL** (scratch copy, full suite):
+  - `SetNull` → `Cascade` in config, migration, Designer and snapshot fails **13** tests, covering AC-062, AC-063 (×2), AC-064, AC-065 (×2), AC-066 (×4), AC-067 (keep link) and AC-068 (×2).
+  - Removing `ForeignKeys = true` from `Program.cs` fails exactly 1 test, `Api_ForeignKeysDisabledInConnectionString_StillEnforced_AC066`, which is the test meant to guard it.
+
+**3. NFR-003 manual measurement (plan.md Test strategy).** Result: **PASS**. The slowest request took 32 ms, against a 500 ms limit.
+- **Setup:**
+  - Database: a fresh scratch file DB migrated with `dotnet ef database update`.
+  - Seed: one SQL script inserted 1,000 contacts and 10,000 to-dos. Each contact has exactly 10 to-dos. 3,000 are done (CHECK-consistent `CompletedAt` ticks) and 2,080 have no due date. The rest have due dates spread over ±365 days from today. Timestamps are ticks.
+  - API: `dotnet run --project src/MicroCrm.Api --urls http://localhost:5097` (Development, Debug build) with `ConnectionStrings__MicroCrm` pointing at the copy.
+  - Database state: `ANALYZE` had not been run, which matches a real database.
+- **Timing:** `curl -w %{time_total}`. "First" is the first request for that URL after startup and one warm-up `GET /api/todos`. Median and max are over the next 10 requests.
+
+| Request | Status | First | Median | Max | items / totalCount |
+|---|---|---|---|---|---|
+| `/api/todos?pageSize=100` | 200 | 31.5 ms | 3.0 ms | 3.9 ms | 100 / 10000 |
+| `/api/todos?status=overdue&pageSize=100` | 200 | 11.9 ms | 3.1 ms | 3.3 ms | 100 / 2852 |
+| `/api/todos?status=open&pageSize=100` | 200 | 7.1 ms | 3.1 ms | 3.2 ms | 100 / 7000 |
+| `/api/todos?status=done&pageSize=100&page=5` | 200 | 8.6 ms | 3.9 ms | 4.5 ms | 100 / 3000 |
+| `/api/todos?contactId=<id>&status=open&pageSize=100` | 200 | 7.6 ms | 1.8 ms | 2.1 ms | 10 / 10 |
+| `/api/todos?contactId=<id>&pageSize=100` | 200 | 6.4 ms | 1.8 ms | 2.4 ms | 10 / 10 |
+| `/api/contacts/<id>/todos?pageSize=100` | 200 | 7.8 ms | 1.7 ms | 1.9 ms | 10 / 10 |
+| `/api/contacts/<id>/todos?status=overdue&pageSize=100` | 200 | 6.7 ms | 1.8 ms | 2.0 ms | 4 / 4 |
+
+- **Query plans:**
+  - The contact filter and the FK unlink action use `IX_Todos_ContactId`: `SEARCH ... (ContactId=?)`.
+  - EF emits the status predicate as `NOT ("t"."IsDone")`, not `"IsDone" = 0`. So, without `ANALYZE`, the overdue, open and done queries do **not** get the "equality on the leading column, range on the second" seek that plan.md's index table describes; they scan. After `ANALYZE`, SQLite uses a skip-scan on `IX_Todos_IsDone_DueDate`.
+  - Either way the NFR is met with a wide margin. Correcting the plan's index rationale is a `/document` item, not a code change.
+
+**4. NFR-004 (logging).** Result: **PASS**.
+- **Code inspection.**
+  - `src/` has no `ILogger`, `Log*` or `Console.Write` calls, and nothing calls `EnableSensitiveDataLogging` (grep is clean). `AddDbContext` in `Program.cs` configures only `UseSqlite`.
+  - The contact delete path is unchanged from spec 002.
+  - `appsettings.json` keeps `Default: Information`.
+- **Runtime probe.** I ran the API with distinctive marker values and sent every to-do path plus the contact delete:
+  - create; update; update and create with an unknown contact (787 → 400);
+  - create with invalid fields; create with malformed JSON;
+  - complete with a body; reopen;
+  - list with an invalid `status`/`contactId`;
+  - `DELETE /api/contacts/{id}`; `DELETE /api/todos/{id}`.
+- **Log contents.** No marker appeared anywhere in the log at any level.
+  - EF's `Executed DbCommand` (Information) and `Failed executing DbCommand` (Error) entries show every parameter as `'?'`, and only `Size = 14` length metadata leaks.
+  - The two `fail:` entries per 787 path are EF's own `Microsoft.EntityFrameworkCore.Update[10000]` error with a stack trace. That's the same noise the contacts 409 path produces (spec 001). It contains no values. It's a follow-up, not NFR-004.
+- **Automated guard.** The `CreateTodo_..._NFR004` guard covers create. The other paths have no automated guard, as plan section 11 intends (reviewer inspection).
+
+**5. Whole-spec checks.**
+- **ADR-0007 (date-only `dueDate`): conforms.**
+  - `string?` request; `DateOnly.TryParseExact("yyyy-MM-dd", Invariant, None)` with no pre-checks (the T-03 fix held); `DateOnly?` entity and response; `TEXT` column.
+  - `today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime)` per request (`TodosEndpoints.cs:160`), never `DateTime.UtcNow`.
+- **ADR-0008 (FK-enforced link): conforms.**
+  - FK `SetNull`; forced `ForeignKeys = true`.
+  - The 787 filter matches the extended code exactly (`SqliteErrors.cs`).
+  - There's no pre-check: the only `AnyAsync` is the nested-list contact check that plan section 7 prescribes, and the `SendsNoContactLookup` tests pin this.
+  - `IsModified = true` on PUT. On PUT the concurrency catch comes before the 787 catch.
+- **ADR-0009 (tick timestamps): conforms.**
+  - `UtcTicks` converters on all three timestamps; `INTEGER` columns; values read back as `TimeSpan.Zero`.
+  - The read-back offset of `CompletedAt` is the clause Finding 1 leaves untested.
+- **Migration: only creates `Todos`.**
+  - `migrations script AddContactNameCollation CreateTodos` shows one `CREATE TABLE "Todos"`, two `CREATE INDEX` statements, and the history insert. There's no `Contacts` rebuild and no `AlterColumn`.
+  - Up from empty succeeded (4 migrations). `database update AddContactNameCollation` (Down) dropped `Todos` only and left `Contacts` and its NOCASE columns and unique index unchanged.
+  - The schema matches the plan block exactly, including `CK_Todos_DoneState`. It's still the only migration on the branch.
+- **No secrets.** The diff adds no keys, tokens or credentials. The `.http` file uses `localhost:5080` (matches `DEV_API_CMD`).
+- **No new dependencies.** No `.csproj`, `Directory.*` or `package.json` change on the branch. `SqliteConnectionStringBuilder` comes from the existing EF Core Sqlite reference, as the plan states.
+- **Errors handled explicitly.**
+  - Every catch is filtered: 787 only, and `DbUpdateConcurrencyException` → 404. Everything else reaches the exception handler as a safe 500 (AC-073 tests).
+  - **Error-class probe:** 415 (text/plain, no content type, on POST/PUT), 405 with `Allow: DELETE, GET, PUT` (PATCH item, DELETE collection, GET `/complete`, PUT nested), a 2 MB `notes` body → 400 validation, repeated `?page=1&page=2` → 400, `?status=open,done` → 400. All are `application/problem+json`. Complete with a text/plain garbage body → 200 (AC-035). A braced `{guid}` `contactId` filter is accepted (`Guid.TryParse` formats, as confirmed at plan approval).
+- **Consistency with contacts.** The two features use the same patterns:
+  - `MapGroup`, `TypedResults`, `ValidationProblem(errors!)` on parse failure;
+  - `Problem(statusCode: 404)` for handler 404s;
+  - relative `Location`;
+  - a single `ExecuteDeleteAsync` delete; `DbUpdateConcurrencyException` → 404;
+  - list parameters bound as `string?` with the same paging messages through `ListQuery.Parse`;
+  - ADR-0006 message style throughout.
+- **Earlier Nits closed:**
+  - the stale guard comments (T-04 `CreateTodoContactLinkTests.cs:96, :137`; T-09 `DeleteTodoTests.cs:83`) now describe the behavior;
+  - `TrimToNull` is shared;
+  - every Should-fix from T-07, T-08, T-09 and T-12 is closed.
+
+**6. Roll-up for `/document` (D-01 plus tasks.md and plan.md corrections).**
+- **tasks.md Traceability table:** fill in the "Test(s)" column from section 1, including the 18 reverse-check additions and the two stale names.
+- **`Guid.CompareTo` wording** (plan.md:281; tasks.md:376). The claim "`Guid.CompareTo`, which orders bytes differently" is wrong on .NET 10. A 200,000-pair probe at T-10 found `Guid.CompareTo`, ordinal-lowercase and ordinal-uppercase all agree; only a little-endian `ToByteArray` comparison differs. Reword to: "sort expected ids with `string.CompareOrdinal` on the lowercase string, which matches SQLite's BINARY comparison of EF's uppercase GUID text".
+- **tasks.md guard labels that were wrong:**
+  - T-09 (tasks.md:351) lists the AC-039 non-GUID rows as a guard ("no route"). At RED they returned **405**, because DELETE wasn't mapped and the method policy runs before the `:guid` constraint. They became 404 only once DELETE was mapped.
+  - T-14 (tasks.md:513) lists `WritesAndDelete_Concurrent_ReturnDocumentedCodes_AC070` as a guard. It was RED: it fails without the catches (`both_no_cc`, 5/5).
+- **plan.md ADR status:** lines 49 and 378-380 still say "Proposed", but the header (line 5) and the three ADR files say Accepted.
+- **plan.md index table** (overdue/open/done rows): EF emits `NOT ("IsDone")`, so SQLite does not do the equality-plus-range seek the table describes (section 3). Correct the rationale, and optionally note that `ANALYZE` enables a skip-scan. No code change; NFR-003 is met.
+- **D-01 items still to do** (all checked as not yet done):
+  - `docs/conventions.md` JSON row (`DateOnly` `YYYY-MM-DD`, ADR-0007), Errors row (new canonical messages), EF Core bullet (FKs forced on, `Contacts` rebuild hazard, tick timestamps);
+  - `docs/adr/0006` amendment rows (date, GUID, existing reference, one-of);
+  - `docs/architecture.md`: line 26 Todos row still "planned (spec 003)", line 54 "Expected later: `Todo`"; add the data model, flows and known risks;
+  - `CHANGELOG.md` has no to-do entries yet (Added: to-dos API; Changed: contact delete unlinks to-dos, FK enforcement forced on);
+  - `docs/roadmap.md` row 003;
+  - spec `Status` → Done and Implementation notes.
+- **Optional test debt** (not findings):
+  - The gate plus `RunGatedAsync` block is repeated in about 6 test classes. Extract a shared gated-release helper into `Integration/Infrastructure/`.
+  - The raw-SQL helpers (`InsertTodoAsync`, `ScalarAsync`, `Upper`) live on `TodoStoreTests` and are called from other classes (for example `CompleteReopenTodoTests.TodoCountAsync`). Move them to an `Integration/Infrastructure/TodoSql` helper.
+  - The NFR-002 regex helper `UtcTimestamp` is private to `CreateTodoTests`. Finding 1's fix may be the moment to share it.
+- **Follow-up (later spec, not 003):** EF logs a `fail:`-level `DbUpdateException` with a stack trace for every expected 787 → 400 (and for the contacts 409). If log noise matters later, consider filtering `Microsoft.EntityFrameworkCore.Update` in `appsettings.json`. No values leak, so this isn't an NFR-004 issue.
+
+**Verdict:** CHANGES_REQUESTED. There is one Blocking finding, for the test-writer: the NFR-002 `completedAt` raw-JSON offset is untested. It's a single test with no production change. After that fix, re-run the `TodoDtos.cs:25` `ToOffset` mutant to confirm the new test kills it. Everything else in spec 003 conforms and can go to `/document`.
+
+### FINAL fix cycle 1: 2026-10-05: APPROVE
+
+**Checks:** backend 649/649 pass (647 + 1 new fact + 1 new theory row; nothing removed) · `dotnet format --verify-no-changes` exit 0 · the diff is test-only (`CompleteReopenTodoTests.cs`, `TodoErrorHandlingTests.cs`; `src/` unchanged).
+
+**Finding 1 (Blocking, NFR-002): closed.**
+- **New test:** `CompleteTodo_Json_CompletedAtHasUtcOffsetAndIsDoneIsBoolean_NFR002`. It completes a to-do, then checks the raw text of both the complete response and a GET on a new client for `"isDone":true` and a `completedAt` string ending in `Z` or `+00:00`.
+- **Mutants** (scratch copy, full suite, run under `TZ=America/New_York` so local time isn't UTC):
+  - `todo.CompletedAt?.ToOffset(TimeSpan.FromHours(2))` in `TodoDtos.cs:25` fails 1 test: the new NFR002 test. It passed 0/647 before the fix.
+  - `todo.CompletedAt?.ToLocalTime()` (the realistic bug: ticks read back as local time) also fails 1 test, the same one.
+
+**Finding 2 (Nit, AC-073 reopen): closed.**
+- `CompleteTodo_WhenUpdateRejected_Returns500AndLeavesTodoOpen_AC073` is now the theory `CompleteOrReopenTodo_WhenUpdateRejected_Returns500AndLeavesTodoUnchanged_AC073`, with `complete` and `reopen` rows.
+- The reopen row first completes the to-do, so the save is a real transition, not the no-op path. It then checks that the raw row is byte-identical, with `IsDone = 1` and `CompletedAt` still set.
+- For `complete`, the assertions are unchanged in substance (`rowBefore == rowAfter`, `IsDone = 0`, `CompletedAt` null), so nothing was weakened.
+- **Mutant:** a reopen-only swallow in `ChangeDoneState` (`catch (DbUpdateException) when (todo.IsDone == false)` returning 200) fails 1 test: the new reopen row.
+
+**Traceability table updated above:**
+- the NFR-002 row now includes the new test;
+- the AC-073 row now has the theory name in place of the old complete-only name.
+
+Both need adding to tasks.md along with the 18 tests from the reverse check.
+
+**Finding 3 (Nit, `TodoListQuery` trimming)** stays open. It's optional and not blocking.
+
+**Verdict:** APPROVE. There are no Blocking findings. Spec 003 is ready for `/document` using the roll-up in section 6 above.

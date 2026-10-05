@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using MicroCrm.Api.Tests.Integration.Infrastructure;
 
@@ -33,6 +34,25 @@ public sealed class CompleteReopenTodoTests(ApiFactory factory) : IClassFixture<
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
         return JsonDocument.Parse(body);
+    }
+
+    [Fact]
+    public async Task CompleteTodo_Json_CompletedAtHasUtcOffsetAndIsDoneIsBoolean_NFR002()
+    {
+        using var client = factory.CreateClient();
+        var id = await CreateTodoAsync(client, "Raw completed json");
+
+        var completeResponse = await ActAsync(client, id, "complete");
+        var completeRaw = await completeResponse.Content.ReadAsStringAsync(Ct);
+        using var freshClient = factory.CreateClient();
+        var getRaw = await GetBodyAsync(freshClient, id);
+
+        Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
+        foreach (var raw in new[] { completeRaw, getRaw })
+        {
+            Assert.Contains("\"isDone\":true", raw, StringComparison.Ordinal);
+            Assert.Matches(new Regex("\"completedAt\":\"[0-9T:.\\-]+(Z|\\+00:00)\"", RegexOptions.CultureInvariant), raw);
+        }
     }
 
     private static async Task<string> GetBodyAsync(HttpClient client, Guid id)

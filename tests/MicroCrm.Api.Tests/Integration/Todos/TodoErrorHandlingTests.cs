@@ -246,9 +246,11 @@ public sealed class UpdateTodoNonForeignKeyFailureTests(ApiFactory factory) : IC
         Assert.Equal(rowBefore, await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id));
     }
 
-    // AC-073: a rejected UPDATE during complete is a safe 500 and the to-do stays open and unchanged.
-    [Fact]
-    public async Task CompleteTodo_WhenUpdateRejected_Returns500AndLeavesTodoOpen_AC073()
+    // AC-073: a rejected UPDATE during complete or reopen is a safe 500 and the to-do stays unchanged.
+    [Theory]
+    [InlineData("complete")]
+    [InlineData("reopen")]
+    public async Task CompleteOrReopenTodo_WhenUpdateRejected_Returns500AndLeavesTodoUnchanged_AC073(string action)
     {
         _ = factory.Server;
         using var client = factory.CreateClient();
@@ -256,6 +258,12 @@ public sealed class UpdateTodoNonForeignKeyFailureTests(ApiFactory factory) : IC
         Assert.Equal(System.Net.HttpStatusCode.Created, created.StatusCode);
         using var createdDoc = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct));
         var id = createdDoc.RootElement.GetProperty("id").GetGuid();
+        if (action == "reopen")
+        {
+            var done = await client.PostAsync($"/api/todos/{id}/complete", null, Ct);
+            Assert.Equal(System.Net.HttpStatusCode.OK, done.StatusCode);
+        }
+
         var rowBefore = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
         factory.Time.Advance(TimeSpan.FromHours(1));
 
@@ -265,7 +273,7 @@ public sealed class UpdateTodoNonForeignKeyFailureTests(ApiFactory factory) : IC
         string body;
         try
         {
-            response = await client.PostAsync($"/api/todos/{id}/complete", null, Ct);
+            response = await client.PostAsync($"/api/todos/{id}/{action}", null, Ct);
             body = await response.Content.ReadAsStringAsync(Ct);
         }
         finally
@@ -282,8 +290,8 @@ public sealed class UpdateTodoNonForeignKeyFailureTests(ApiFactory factory) : IC
 
         var rowAfter = await TodoStoreTests.ReadTodoAsync(factory.ConnectionString, id);
         Assert.Equal(rowBefore, rowAfter);
-        Assert.Equal(0L, Convert.ToInt64(rowAfter!["IsDone"]));
-        Assert.Null(rowAfter["CompletedAt"]);
+        Assert.Equal(action == "reopen" ? 1L : 0L, Convert.ToInt64(rowAfter!["IsDone"]));
+        Assert.Equal(action == "reopen", rowAfter["CompletedAt"] is not null);
     }
 }
 
