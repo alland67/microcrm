@@ -31,7 +31,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
 
 ---
 
-- [ ] T-01: API client with typed ProblemDetails errors, plus the MSW test harness
+- [x] T-01: API client with typed ProblemDetails errors, plus the MSW test harness — done 2026-10-06: client + MSW harness, 29 client tests; review APPROVE after 1 fix cycle (nits deferred: abort during body read, mixed-key errors row)
   - **ACs:** foundation for AC-009, AC-040, AC-041, AC-042, AC-043; NFR-003, NFR-005
   - **Depends on:** none
   - **Tests (test-writer):**
@@ -54,7 +54,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `api/client.ts`
   - **Done when:** `client.test.ts` passes. The suite, lint, typecheck, and build are green. `ApiError` and the functions match the plan's signatures.
 
-- [ ] T-02: App shell, routes, test providers, starter removed
+- [x] T-02: App shell, routes, test providers, starter removed — done 2026-10-06: react-router shell, layout, not-found, page stubs, test providers; review APPROVE, should-fixes applied (nav-in-banner guard, wrapper-based renderWithProviders + test)
   - **Pre-RED chore (implementer, before the test-writer starts):** `npm --prefix web install react-router@^8.4.0`. Commit as `chore(004): add react-router dependency (ADR-0010) [T-02]`. The suite must stay green.
   - **ACs:** AC-001, AC-002, AC-003, AC-004; NFR-004 (starter gone)
   - **Depends on:** T-01
@@ -74,7 +74,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
     - Deleted: `App.css`, `assets/*`, `public/icons.svg`
   - **Done when:** the four ACs pass. No starter counter, logos, or links remain in `web/src` or `index.html`. The suite, lint, typecheck, and build are green.
 
-- [ ] T-03: Contacts list: request and table
+- [x] T-03: Contacts list: request and table — done 2026-10-06: list query + table + count + New contact link; review APPROVE (should-fix: assert New contact link in loading/error states, carried into T-04)
   - **ACs:** AC-005, AC-006, AC-007, AC-012
   - **Depends on:** T-02
   - **Tests (test-writer):**
@@ -89,7 +89,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `api/types.ts`, `C/useContacts.ts`, `C/ContactsPage.tsx`, `C/ContactsTable.tsx`, `C/contactName.ts`
   - **Done when:** the ACs pass, and the list renders through `useContactsList` → `apiGet` with query key `['contacts', { page, search }]`. The suite, lint, typecheck, and build are green.
 
-- [ ] T-04: Contacts list: loading, error with retry, empty
+- [x] T-04: Contacts list: loading, error with retry, empty — done 2026-10-06: loading/error+retry/empty states, New contact link in all states; review APPROVE, finding 12 fixed (retry after failed background refetch shows loading)
   - **ACs:** AC-008, AC-009, AC-010, AC-011
   - **Depends on:** T-03
   - **Tests (test-writer):**
