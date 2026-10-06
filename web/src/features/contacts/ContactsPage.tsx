@@ -1,9 +1,10 @@
+import { Pagination } from '../../components/Pagination'
 import { Link, useSearchParams } from 'react-router'
 import { ContactSearchForm } from './ContactSearchForm'
 import { maxLengthMessage } from '../../lib/validationMessages'
 import { MAX_SEARCH_LENGTH, readListParams, toSearchParams } from './listParams'
 import { ContactsTable } from './ContactsTable'
-import { useContactsList } from './useContacts'
+import { CONTACTS_PAGE_SIZE, useContactsList } from './useContacts'
 import styles from './ContactsPage.module.css'
 
 export function ContactsPage() {
@@ -15,6 +16,10 @@ export function ContactsPage() {
 
   function handleSearch(term: string | null) {
     setSearchParams(toSearchParams({ page: 1, search: term }))
+  }
+
+  function handlePageChange(page: number) {
+    setSearchParams(toSearchParams({ ...params, page }))
   }
 
   return (
@@ -53,6 +58,13 @@ export function ContactsPage() {
           <>
             <p>{data.totalCount === 1 ? '1 contact' : `${data.totalCount} contacts`}</p>
             <ContactsTable contacts={data.items} />
+            {data.totalCount > CONTACTS_PAGE_SIZE && (
+              <Pagination
+                page={params.page}
+                totalPages={Math.ceil(data.totalCount / CONTACTS_PAGE_SIZE)}
+                onPageChange={handlePageChange}
+              />
+            )}
           </>
         )
       )}

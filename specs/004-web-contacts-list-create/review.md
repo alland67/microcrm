@@ -422,3 +422,59 @@ Survivors:
 - **Accessibility.** The no-match message and Clear search sit in a plain `div`. The spec asks for no live region there.
 
 **Commit:** there are no Blocking findings, so T-06 can be committed. Findings 18 and 19 are test-only, a few lines each. Land them in a short fix cycle, or first thing in T-07; they shouldn't slip past T-07.
+
+## T-07: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of 489676e.
+- Tests: `web/src/features/contacts/listParams.test.ts` (extended) and `ContactsPage.paging.test.tsx` (new).
+- Production: `web/src/components/Pagination.tsx` (+ `.module.css`), `features/contacts/listParams.ts`, `ContactsPage.tsx`.
+- The only removed line in the existing test files is the widened `import` in `listParams.test.ts`.
+- No `staleTime` anywhere in `web/src` (grep is empty).
+- No dependency changes.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 132/132 in 9 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+- **Stability:** the paging file passed 6/6 runs on its own and 3/3 inside the full suite. The stable ids plus `waitFor` fix for the AC-022 Back test holds without `staleTime`.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-021 | `shows Previous, Next and "Page 1 of 3" when 45 contacts do not fit on one page` | yes |
+| AC-022 | `requests the next page, keeps the search, updates the address and shows page 2 on Next`; `pushes a history entry when paging, so Back returns to the previous page`; `toSearchParams` `writes a page above 1` / `writes both the search and the page` | yes |
+| AC-023 | `requests the previous page and keeps the search on Previous`; `leaves out page from the address when Previous returns to page 1` | yes |
+| AC-024 | first page (Previous disabled, Next enabled); last page (Next disabled, Previous enabled); middle page (both enabled) | yes |
+| AC-025 | 20 contacts → no Pagination; 21 → `Page 1 of 2` (boundary); 1 → no Pagination | yes |
+| AC-027 | `listParams.test.ts`: page table (absent, `1`, `2`, `02`, `2147483647` accepted; `0`, `-1`, `2.5`, `abc`, `''`, ` 2`, `2 `, `+2`, `1e3`, `0x10`, `2147483648`, `99999999999` → 1), `MAX_PAGE`, search blank/trim, `toSearchParams`; page tests: 8 invalid address values send `page=1`, `Page 1 of 3` for `?page=1e3`, and a valid `?page=2` is sent | yes |
+
+**T-05 carry-forward mutants (re-run):** all three are now killed.
+- `setSearchParams(..., { replace: true })` for paging: fails 1 (the push/Back test).
+- `toSearchParams` never writing `page`: fails 5.
+- `Number(rawPage) || 1`: fails 11.
+
+**Mutation (scratch copy, 22 mutants, full suite):** 21 were killed:
+- **Page parse:** unanchored regex (fails 11); signed regex (fails 2); no `MAX_PAGE` (fails 3); `<` instead of `<=` (fails 1); no `>= 1` (fails 2); clamping instead of falling back to 1 (fails 3).
+- **When paging shows:** `>=` instead of `>` (fails 1); `floor` instead of `ceil` (fails 7); deciding by `items.length` (fails 10).
+- **Paging actions:** Next/Previous dropping `search` (fails 2); Previous going to 1 (fails 1); Next going +2 (fails 2).
+- **Disabled states:** `<` / `>` and never-disabled variants (fail 1 each).
+- **Pagination landmark:** unlabelled (fails 10); different text (fails 6).
+
+The one survivor is `page={data.page}` instead of `page={params.page}`. That's equivalent: the API echoes the requested `page` (spec 001 paging), and so does the handler. It's not a finding.
+
+**Findings:** none.
+
+**Notes:**
+- **Plan conformance.**
+  - The `Pagination` props match the plan (`page`, `totalPages`, `onPageChange`).
+  - It's a `nav` named `Pagination` with `Previous`/`Next` buttons using the native `disabled`, and the `Page {p} of {n}` text.
+  - Paging shows only when `totalCount > 20`, with `ceil(totalCount / 20)` pages.
+  - `readListParams` uses `/^\d+$/` and `1..MAX_PAGE`, exactly as plan § Address params says.
+  - Paging pushes through `setSearchParams` and keeps the search.
+- **Minimality.** No "This page is empty" state (T-08), and no Back-specific code; AC-026 is T-08's.
+- **Accessibility.** `Page X of Y` isn't a live region, so a screen-reader user who presses Next isn't told about the page change, except through the focus staying on the button. The spec doesn't require that, so it's noted for FINAL.
+
+**Commit:** no findings, so T-07 can be committed.

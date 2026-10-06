@@ -130,7 +130,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `lib/validationMessages.ts`, `C/listParams.ts` (`searchTooLong`, `MAX_SEARCH_LENGTH`), `C/useContacts.ts` (`enabled` option), `C/ContactSearchForm.tsx` (`initialError`), `C/ContactsPage.tsx`
   - **Done when:** the ACs pass. When the address term changes, the search form's reset (adjusting state during render, not a `key`; see T-05) also clears the 254-character error and re-applies `initialError`: cleared for a valid term, set for an over-long one. With an over-long address term, the list query is disabled (no request), and the page shows the AC-049 state before any loading state (plan rendering rule 0). The submit check and the address check share `MAX_SEARCH_LENGTH` and `maxLengthMessage`. The suite, lint, typecheck, and build are green.
 
-- [ ] T-07: Paging controls and page from the address
+- [x] T-07: Paging controls and page from the address — done 2026-10-06: Pagination nav (Previous/Next, Page X of Y), strict page parsing with MAX_PAGE, pushes history; review APPROVE, no findings (test-only fix for refetch timing; no staleTime)
   - **ACs:** AC-021, AC-022, AC-023, AC-024, AC-025, AC-027
   - **Depends on:** T-06
   - **Tests (test-writer):**
