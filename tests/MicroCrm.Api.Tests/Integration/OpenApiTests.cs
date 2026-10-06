@@ -163,4 +163,80 @@ public sealed class OpenApiTests(ApiFactory factory)
             missing.Count == 0,
             $"Error responses without application/problem+json content: [{string.Join(", ", missing)}]");
     }
+
+    private static readonly (string Name, string Path, string Method, string OperationId, string[] Codes, string[] ErrorCodes)[] TodoOperations =
+    [
+        ("create", "/api/todos", "post", "CreateTodo", ["201", "400"], ["400"]),
+        ("list", "/api/todos", "get", "ListTodos", ["200", "400"], ["400"]),
+        ("get", "/api/todos/{id}", "get", "GetTodoById", ["200", "404"], ["404"]),
+        ("update", "/api/todos/{id}", "put", "UpdateTodo", ["200", "400", "404"], ["400", "404"]),
+        ("delete", "/api/todos/{id}", "delete", "DeleteTodo", ["204", "404"], ["404"]),
+        ("complete", "/api/todos/{id}/complete", "post", "CompleteTodo", ["200", "404"], ["404"]),
+        ("reopen", "/api/todos/{id}/reopen", "post", "ReopenTodo", ["200", "404"], ["404"]),
+        ("contact-todos", "/api/contacts/{id}/todos", "get", "ListContactTodos", ["200", "400", "404"], ["400", "404"]),
+    ];
+
+    public static TheoryData<string> TodoOperationNames()
+    {
+        var data = new TheoryData<string>();
+        foreach (var op in TodoOperations)
+        {
+            data.Add(op.Name);
+        }
+
+        return data;
+    }
+
+    [Fact]
+    public async Task OpenApi_TodoEndpoints_HaveOperationIdsAndSummaries_NFR001()
+    {
+        var doc = await GetDocumentAsync();
+
+        var problems = new List<string>();
+        foreach (var t in TodoOperations)
+        {
+            var op = GetOperation(doc, t.Path, t.Method);
+            if (OperationId(op) != t.OperationId)
+            {
+                problems.Add($"{t.Method.ToUpperInvariant()} {t.Path}: operationId '{OperationId(op)}' (expected '{t.OperationId}')");
+            }
+
+            if (string.IsNullOrWhiteSpace(Summary(op)))
+            {
+                problems.Add($"{t.Method.ToUpperInvariant()} {t.Path}: no summary");
+            }
+        }
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    [Theory]
+    [MemberData(nameof(TodoOperationNames))]
+    public async Task OpenApi_TodoEndpoints_DocumentStatusCodes_NFR001(string name)
+    {
+        var doc = await GetDocumentAsync();
+        var t = TodoOperations.Single(o => o.Name == name);
+
+        AssertCodes(GetOperation(doc, t.Path, t.Method), $"{t.Method.ToUpperInvariant()} {t.Path}", t.Codes);
+    }
+
+    [Fact]
+    public async Task OpenApi_TodoEndpoints_ErrorResponsesAreProblemJson_NFR001()
+    {
+        var doc = await GetDocumentAsync();
+
+        var missing = new List<string>();
+        foreach (var t in TodoOperations)
+        {
+            var op = GetOperation(doc, t.Path, t.Method);
+            foreach (var code in t.ErrorCodes.Where(c => !HasProblemJsonContent(op, c)))
+            {
+                missing.Add($"{t.Method.ToUpperInvariant()} {t.Path} {code}");
+            }
+        }
+
+        Assert.True(
+            missing.Count == 0,
+            $"Error responses without application/problem+json content: [{string.Join(", ", missing)}]");
+    }
 }

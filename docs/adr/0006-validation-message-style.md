@@ -36,6 +36,10 @@ Canonical messages (one per rule, shared by every field or parameter with that r
 | Text longer than its maximum after trimming | `Must be {max} characters or fewer.` |
 | Email not valid | `Must be a valid email address.` |
 | Integer query parameter invalid or out of range | `Must be an integer between {min} and {max}.` |
+| Date not a real `YYYY-MM-DD` calendar date (added by spec 003, ADR-0007) | `Must be a valid date in YYYY-MM-DD format.` |
+| GUID not well-formed (added by spec 003) | `Must be a valid GUID.` |
+| Referenced contact doesn't exist (added by spec 003, ADR-0008) | `Must refer to an existing contact.` |
+| Value not in a fixed set (added by spec 003; `status` list filter) | `Must be one of: open, done, overdue.` |
 
 Tests assert the exact canonical message for each rule, plus the generic style checks above.
 
@@ -43,4 +47,5 @@ Tests assert the exact canonical message for each rule, plus the generic style c
 - Spec 002 aligns the spec 001 messages (create `firstName`, list `page`/`pageSize`/`search`). Status codes and `errors` keys don't change.
 - The documenter records the rule in `docs/conventions.md` (Errors row) when spec 002 is documented. The implementer can't edit that file.
 - Later specs (to-dos, 003) use the same canonical messages for the same rules and add new ones in the same style.
+- Amendment (2026-10-05, spec 003): the four rows above were added for the to-dos API. `Required.`, `Must be {max} characters or fewer.` and `Must be an integer between {min} and {max}.` are reused unchanged for `title`, `notes`, `page` and `pageSize`. The `status` message lists its values literally, so adding a status value means changing that message.
 - The web client can display `errors[field]` verbatim under the field.

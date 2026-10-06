@@ -29,3 +29,43 @@ Content-Type: application/json
 ###
 
 DELETE {{MicroCrm.Api_HostAddress}}/api/contacts/{{createContact.response.body.$.id}}
+
+###
+
+# @name createTodo
+POST {{MicroCrm.Api_HostAddress}}/api/todos
+Content-Type: application/json
+
+{
+  "title": "Call Ada",
+  "notes": "About the quote",
+  "dueDate": "2026-10-05"
+}
+
+###
+
+GET {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}
+
+###
+
+PUT {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "title": "Call Ada back",
+  "notes": null,
+  "dueDate": "2026-10-06",
+  "contactId": null
+}
+
+###
+
+POST {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}/complete
+
+###
+
+POST {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}/reopen
+
+###
+
+DELETE {{MicroCrm.Api_HostAddress}}/api/todos/{{createTodo.response.body.$.id}}

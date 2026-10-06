@@ -1,3 +1,5 @@
+using static MicroCrm.Api.Common.TextNormalization;
+
 namespace MicroCrm.Api.Features.Contacts;
 
 public sealed record ContactInput(
@@ -69,11 +71,5 @@ public sealed record ContactInput(
         {
             errors[field] = [$"Must be {max} characters or fewer."];
         }
-    }
-
-    private static string? TrimToNull(string? value)
-    {
-        var trimmed = value?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }

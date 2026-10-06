@@ -1,4 +1,5 @@
 using MicroCrm.Api.Features.Contacts;
+using MicroCrm.Api.Features.Todos;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public DbSet<Contact> Contacts => Set<Contact>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+    public DbSet<Todo> Todos => Set<Todo>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
         modelBuilder.ApplyConfiguration(new ContactConfiguration());
+        modelBuilder.ApplyConfiguration(new TodoConfiguration());
+    }
 }

@@ -1,6 +1,8 @@
 using MicroCrm.Api.Data;
 using MicroCrm.Api.Features.Contacts;
+using MicroCrm.Api.Features.Todos;
 
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,7 +12,11 @@ builder.Services.AddProblemDetails();
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = false);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
-    options.UseSqlite(sp.GetRequiredService<IConfiguration>().GetConnectionString("MicroCrm")));
+    options.UseSqlite(new SqliteConnectionStringBuilder(
+        sp.GetRequiredService<IConfiguration>().GetConnectionString("MicroCrm"))
+    {
+        ForeignKeys = true,
+    }.ToString()));
 
 var app = builder.Build();
 
@@ -30,6 +36,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapContactsEndpoints();
+app.MapTodosEndpoints();
 
 app.Run();
 
