@@ -271,3 +271,72 @@ My Try-again-outside-the-alert mutant was a no-op, so it wasn't run. That case i
 - **Minimality.** No search, paging, "empty page" (T-08) or no-match message yet. The CSS module holds a single margin rule.
 - **Accessibility.** The loading `role="status"` and error `role="alert"` regions are mounted together with their text. Some screen readers announce a live region reliably only when its content changes after it exists. The spec only asks for the roles, so this is noted for FINAL, not raised as a finding.
 - **Plan drift (for /document, planner).** The plan's "Error refetch looks like an error" risk should say that it only applies when the query already has data.
+
+## T-05: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of 7ed0082 (T-01 to T-04 are committed in 16c29a9).
+- Test: `web/src/features/contacts/ContactsPage.search.test.tsx` (8 tests).
+- Production: `features/contacts/listParams.ts` (new), `ContactSearchForm.tsx` (new), `ContactsPage.tsx`.
+- No dependency changes.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 65/65 in 7 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+
+**AC coverage:**
+| AC | Test(s) in `ContactsPage.search.test.tsx` | Adequate? |
+|---|---|---|
+| AC-013 | `submits a trimmed term with Enter ...`; `... with the Search button`; `shows different rows for different terms`; `sends no request while typing without submitting` | yes |
+| AC-014 | `shows page 1 of the new results when submitting from another page` (starts at `?page=3`) | yes |
+| AC-015 | `requests no search param at page 1 for a whitespace-only term` (starts at `?search=ada&page=2`) | yes |
+| AC-019 | `shows the address term in the box and requests the list filtered by it` (the first GET is already filtered) | yes |
+| AC-020 | `shows only the latest search when an earlier response arrives late` | yes, for the late response itself; see finding 14 |
+
+**Mutation (scratch copy, 17 mutants, full suite):** 10 were killed:
+- **Query key without `search` (carried over from T-03): fails 4.** Key outside the `['contacts']` prefix: fails 1, caught by the new T-04 finding-12 test.
+- Form doesn't trim: fails 3.
+- Blank submitted as `''`: fails 1.
+- Address `search` ignored: fails 7.
+- Search keeps the current page: fails 2.
+- `toSearchParams` always writes `page`: fails 4.
+- `page` ignored: fails 1.
+- Box starts empty: fails 1.
+- Keyed form: fails 2.
+
+Survivors:
+- The reset block in `ContactSearchForm` removed (finding 13).
+- `placeholderData: (prev) => prev` (finding 14).
+- Interim, owned by later tasks:
+  - `setSearchParams(..., { replace: true })` (AC-026, T-07);
+  - `toSearchParams` never writing `page` (Next/Previous, T-07);
+  - a looser `page || 1` parse (AC-027, T-07);
+  - an untrimmed address term (the plan's `listParams.test.ts` "254 with surrounding spaces" row at T-06/T-07).
+- `preventDefault` removed. jsdom doesn't implement form submission, so this can't be observed in tests. A real browser would do a native GET submit and reload the page.
+
+**Implementer deviation 1: `seenTerm` "adjust state on prop change" instead of `key`.** Accepted. Probed in scratch:
+- **Both forms reset the box on Back:** `?search=bob` → Back gives `?search=ada` with the box showing `ada`.
+- **Both forms reset it on the header Contacts link:** `''` with an empty box.
+- **The key costs focus.** With `key`, the input remounts on every submit and keyboard focus drops to `body` after Enter. With `seenTerm`, focus stays on the box. That's a real accessibility gain, not just a convenience for the tests.
+- **The intent is met:** "the box resets when the address term changes".
+- **Planner:** reword plan § Components (`ContactSearchForm`: "keyed by the address term") and the tasks.md T-05 "Done when". Suggested wording: "resets its text (and, from T-06, its error) when the address term changes, by adjusting state during render rather than with a `key`, so focus survives a submit".
+- **T-06 caveat.** The same block must also reset the local 254 error and `initialError` (AC-018/AC-049). A key would have done that for free.
+
+**Implementer deviation 2: a minimal `page` parse in `readListParams` at T-05.** Within scope.
+- **It's demanded.** The AC-014 test opens `?page=3` and asserts page 3's rows first, and the `page_ignored` mutant fails it.
+- **The guard is interim.** The `Number.isInteger && >= 1` guard goes beyond what is demanded (`page || 1` survives). It's an interim placeholder that T-07 replaces with the plan's `/^\d+$/` plus `MAX_PAGE` rule and tests. Under the spec 001 T-13 precedent that isn't drift.
+- **T-07 RED is still real.** `Number(' 2')`, `Number('+2')`, `Number('1e3')` and `99999999999` are all accepted today, so those AC-027 rows will fail first. `0`, `-1`, `2.5`, `abc` and absent will be guards.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 13 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx | The T-05 "Done when" ("resets when the address changes") isn't pinned. Removing `setTerm(initialTerm)` from the reset block passes 65/65. This is exactly the mechanism deviation 1 replaced, so it should be guarded now and not wait for AC-017/AC-026. | Add a test: submit `ada`, then `bob`, then `goBack()`, and assert that the box shows `ada`. Alternatively, type into the box on `?search=ada` and click the header `Contacts` link, then assert that the box is empty [AC-019]. |
+| 14 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx:171-177 | Adding `placeholderData: (prev) => prev` to `useContactsList` passes every test. The plan rejects it explicitly ("A new key shows the loading state rather than the previous page's table. That makes AC-008 and AC-020 hold by construction"). Nothing asserts what shows while a *new* search is in flight. | In the AC-020 test, after submitting `a` (held), assert `status` `Loading contacts…` and no `table` [AC-008/AC-020]. |
+| 15 | Nit | implementer | web/src/features/contacts/ContactSearchForm.tsx:27-30 | The input is labelled by wrapping it in `<label>`. Conventions say `<label htmlFor>`, and T-06 needs an `id` anyway for `aria-describedby="contact-search-error"`. | Use `<label htmlFor="contact-search">` with `<input id="contact-search">` (at T-06 at the latest). |
+| 16 | Nit | implementer | web/src/features/contacts/listParams.ts:4 | `readListParams` returns `ContactListParams`. The plan signature returns `ListAddress = { params, searchTooLong }`, and the T-07 unit tests target that shape. | Adopt `ListAddress` at T-06, when `searchTooLong` is demanded. |
+| 17 | Nit | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx:48, 65, 112, 132 | `listGets(requests).at(-1)!` uses `!` without a comment, which the conventions require. | Add a comment, or assert the length and then index. |
+
+**Commit:** there are no Blocking findings, so T-05 can be committed. Findings 13 and 14 are test-only and take a couple of lines each. Land them in a short fix cycle before the T-05 commit, or as the first thing in T-06. Either way, they must not slip past T-06.

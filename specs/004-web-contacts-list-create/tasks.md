@@ -102,7 +102,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/ContactsPage.tsx` (+ `.module.css`)
   - **Done when:** the ACs pass, and the state order matches the plan's rendering rules (loading checks `isFetching` before error). The suite, lint, typecheck, and build are green.
 
-- [ ] T-05: Search: submit, address, late responses
+- [x] T-05: Search: submit, address, late responses — done 2026-10-06: search form + address params, late responses via query key; review APPROVE, findings 13–14 closed with guard tests (mutants proven)
   - **ACs:** AC-013, AC-014, AC-015, AC-019, AC-020
   - **Depends on:** T-04
   - **Tests (test-writer):** `C/ContactsPage.search.test.tsx` (new):
@@ -113,7 +113,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
     - Search `a` (held), then search `b` (answered). Release `a`. Only `b`'s rows are ever shown afterwards, and the box shows `b` [AC-020].
     - Typing without submitting sends no request (Q3) [AC-013].
   - **Likely source files:** `C/listParams.ts` (`readListParams`/`toSearchParams`, search part), `C/ContactSearchForm.tsx`, `C/ContactsPage.tsx`
-  - **Done when:** the ACs pass. The search box is keyed by the address term, so it resets when the address changes. The suite, lint, typecheck, and build are green.
+  - **Done when:** the ACs pass. The search form resets its text (and, from T-06, its error) when the address term changes, by adjusting state during render rather than with a `key`, so focus survives a submit. The suite, lint, typecheck, and build are green.
 
 - [ ] T-06: Search: no match, clear, too long (submitted or in the address)
   - **ACs:** AC-016, AC-017, AC-018, AC-049
@@ -128,7 +128,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
       - From that state, submitting `ada` sends one request with `search=ada&page=1`, shows the rows, and removes the message [AC-049].
       - Opening `/contacts?search=<254 characters>` sends a request with that term (boundary) [AC-049].
   - **Likely source files:** `lib/validationMessages.ts`, `C/listParams.ts` (`searchTooLong`, `MAX_SEARCH_LENGTH`), `C/useContacts.ts` (`enabled` option), `C/ContactSearchForm.tsx` (`initialError`), `C/ContactsPage.tsx`
-  - **Done when:** the ACs pass. With an over-long address term, the list query is disabled (no request), and the page shows the AC-049 state before any loading state (plan rendering rule 0). The submit check and the address check share `MAX_SEARCH_LENGTH` and `maxLengthMessage`. The suite, lint, typecheck, and build are green.
+  - **Done when:** the ACs pass. When the address term changes, the search form's reset (adjusting state during render, not a `key`; see T-05) also clears the 254-character error and re-applies `initialError`: cleared for a valid term, set for an over-long one. With an over-long address term, the list query is disabled (no request), and the page shows the AC-049 state before any loading state (plan rendering rule 0). The submit check and the address check share `MAX_SEARCH_LENGTH` and `maxLengthMessage`. The suite, lint, typecheck, and build are green.
 
 - [ ] T-07: Paging controls and page from the address
   - **ACs:** AC-021, AC-022, AC-023, AC-024, AC-025, AC-027

@@ -16,7 +16,7 @@ This is the first web spec. It replaces the Vite starter with a small app built 
 
 **List rendering rules.** Exactly one of these states shows, in this order:
 0. **Search too long in the address** (AC-049): the address term is longer than 254 characters after trimming. The query is disabled, so no request is sent. Only the heading, the "New contact" link, and the search form show. The box holds the term and carries the 254 message. A disabled query sits at `status: 'pending'`, `fetchStatus: 'idle'`, so this check must come before Loading, otherwise a loading indicator with no request would show.
-1. **Loading**: no data yet for the current key, and a request is in flight. This includes a "Try again" refetch after an error: TanStack keeps `status === 'error'` while refetching, so the page must check `isFetching` first (AC-008, AC-010).
+1. **Loading**: `isFetching && (!data || isError)`, checked before the error branch (AC-008, AC-010).
 2. **Error**: `isError` and not fetching (AC-009).
 3. **Empty**: `items` is empty and `totalCount === 0`. The message depends on whether a search is active (AC-011, AC-016).
 4. **Empty page**: `items` is empty and `totalCount > 0` (AC-028).
@@ -207,7 +207,8 @@ export function toContactFormErrors(error: unknown): ContactFormServerErrors
 // src/components/Pagination.tsx: rendered by the page only when totalPages > 1
 type PaginationProps = { page: number; totalPages: number; onPageChange: (page: number) => void }
 
-// src/features/contacts/ContactSearchForm.tsx: keyed by the address term, so Back/Clear reset the box
+// src/features/contacts/ContactSearchForm.tsx: resets its text (and, from T-06, its error) when the address term
+// changes, by adjusting state during render rather than with a `key`, so focus survives a submit (Back/Clear reset the box)
 type ContactSearchFormProps = {
   initialTerm: string
   initialError?: string          // set when the address term is too long (AC-049)
@@ -319,7 +320,7 @@ All web tests use Vitest, Testing Library, user-event, and MSW (`FRONTEND_TEST_C
 ## Risks & mitigations
 - **Client and server rules drift** (lengths, email, whitespace). JS `trim()`/`\s` and .NET `Trim()`/`char.IsWhiteSpace` disagree on a few exotic characters (for example U+0085 and U+FEFF). Mitigations: the API stays the source of truth, AC-040 shows any server field error, and `contactFormRules.test.ts` pins the ASCII and common cases. Lengths are counted in UTF-16 code units on both sides.
 - **Email error precedence.** The server reports `Must be a valid email address.` instead of the max-length message when both apply. The client mirrors this. AC-031 tests use a *valid* over-long email (for example `'a'.repeat(250) + '@x.io'`).
-- **Error refetch looks like an error.** TanStack keeps `status: 'error'` during a "Try again" refetch. The rendering order (loading checks `isFetching` first) is spelled out above and covered by AC-010 with a held response.
+- **Error refetch looks like an error.** This only applies when the query already has data, for example a background refetch that failed and is retried with "Try again". TanStack then keeps `status: 'error'` alongside the old `data` while it refetches. The loading condition is therefore `isFetching && (!data || isError)`, checked before the error branch (T-04 review finding 12), so a retry shows the loading state rather than a stale error or table. AC-010 covers it with a held response.
 - **Stale list after create.** Handled by `removeQueries` (not `invalidateQueries`) before navigating. AC-046 asserts the loading state, then the new row.
 - **The one-off confirmation persists in history state.** A reload or Back to that entry shows it again. That's acceptable for this spec. Any search or paging creates new entries without it.
 - **Production retry delay.** `main.tsx` uses TanStack defaults (3 retries with backoff), so a failed list shows its error after about 7 s in the real app. Tests use `retry: false`. Not changed here, because spec 004 has no criterion for it and untested config shouldn't be added. Listed as a follow-up.

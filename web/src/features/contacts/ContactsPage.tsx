@@ -1,15 +1,24 @@
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
+import { ContactSearchForm } from './ContactSearchForm'
+import { readListParams, toSearchParams } from './listParams'
 import { ContactsTable } from './ContactsTable'
 import { useContactsList } from './useContacts'
 import styles from './ContactsPage.module.css'
 
 export function ContactsPage() {
-  const { data, isFetching, isError, refetch } = useContactsList({ page: 1, search: null })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const params = readListParams(searchParams)
+  const { data, isFetching, isError, refetch } = useContactsList(params)
+
+  function handleSearch(term: string | null) {
+    setSearchParams(toSearchParams({ page: 1, search: term }))
+  }
 
   return (
     <>
       <h1>Contacts</h1>
       <Link to="/contacts/new">New contact</Link>
+      <ContactSearchForm initialTerm={params.search ?? ''} onSearch={handleSearch} />
       {isFetching && (!data || isError) ? (
         <p role="status" className={styles.message}>
           Loading contacts…
