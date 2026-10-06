@@ -1,14 +1,17 @@
 import { Link, useSearchParams } from 'react-router'
 import { ContactSearchForm } from './ContactSearchForm'
-import { readListParams, toSearchParams } from './listParams'
+import { maxLengthMessage } from '../../lib/validationMessages'
+import { MAX_SEARCH_LENGTH, readListParams, toSearchParams } from './listParams'
 import { ContactsTable } from './ContactsTable'
 import { useContactsList } from './useContacts'
 import styles from './ContactsPage.module.css'
 
 export function ContactsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const params = readListParams(searchParams)
-  const { data, isFetching, isError, refetch } = useContactsList(params)
+  const { params, searchTooLong } = readListParams(searchParams)
+  const { data, isFetching, isError, refetch } = useContactsList(params, {
+    enabled: !searchTooLong,
+  })
 
   function handleSearch(term: string | null) {
     setSearchParams(toSearchParams({ page: 1, search: term }))
@@ -18,8 +21,12 @@ export function ContactsPage() {
     <>
       <h1>Contacts</h1>
       <Link to="/contacts/new">New contact</Link>
-      <ContactSearchForm initialTerm={params.search ?? ''} onSearch={handleSearch} />
-      {isFetching && (!data || isError) ? (
+      <ContactSearchForm
+        initialTerm={params.search ?? ''}
+        initialError={searchTooLong ? maxLengthMessage(MAX_SEARCH_LENGTH) : null}
+        onSearch={handleSearch}
+      />
+      {searchTooLong ? null : isFetching && (!data || isError) ? (
         <p role="status" className={styles.message}>
           Loading contacts…
         </p>
@@ -28,6 +35,13 @@ export function ContactsPage() {
           <p>Couldn't load contacts.</p>
           <button type="button" onClick={() => void refetch()}>
             Try again
+          </button>
+        </div>
+      ) : data && data.totalCount === 0 && params.search !== null ? (
+        <div className={styles.message}>
+          <p>No contacts match "{params.search}".</p>
+          <button type="button" onClick={() => handleSearch(null)}>
+            Clear search
           </button>
         </div>
       ) : data && data.totalCount === 0 ? (

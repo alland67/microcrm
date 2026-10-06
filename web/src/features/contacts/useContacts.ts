@@ -14,8 +14,10 @@ export const contactKeys = {
 
 export function useContactsList(
   params: ContactListParams,
+  { enabled = true }: { enabled?: boolean } = {},
 ): UseQueryResult<PagedResponse<Contact>, Error> {
   return useQuery({
+    enabled,
     queryKey: contactKeys.list(params),
     queryFn: ({ signal }) => {
       const query = new URLSearchParams({

@@ -340,3 +340,85 @@ Survivors:
 | 17 | Nit | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx:48, 65, 112, 132 | `listGets(requests).at(-1)!` uses `!` without a comment, which the conventions require. | Add a comment, or assert the length and then index. |
 
 **Commit:** there are no Blocking findings, so T-05 can be committed. Findings 13 and 14 are test-only and take a couple of lines each. Land them in a short fix cycle before the T-05 commit, or as the first thing in T-06. Either way, they must not slip past T-06.
+
+## T-06: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of c919731.
+- Tests: `web/src/features/contacts/listParams.test.ts` (new, 5 tests) and `ContactsPage.search.test.tsx` (+10).
+- Production: `web/src/lib/validationMessages.ts` (new), plus `features/contacts/{listParams.ts,useContacts.ts,ContactSearchForm.tsx,ContactsPage.tsx}`.
+- The test-file diff is purely additive (+191, −0), so the Prettier run reformatted no existing tests and none were weakened.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 82/82 in 8 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+- No dependency changes.
+
+**Earlier items:**
+- **T-05 findings 13 and 14:** closed (verified by the coordinator's mutants). The plan has been reworded.
+- **Finding 15 (`htmlFor`):** closed: `<label htmlFor="contact-search">` with `id="contact-search"`.
+- **Finding 16 (`ListAddress`):** closed: `readListParams` now returns `{ params, searchTooLong }`.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-016 | `shows the no-match message and Clear search, and no table, paging or empty message` | yes; see Nit 21 |
+| AC-017 | `empties the box and requests the unfiltered page 1 on Clear search` | partly; see finding 19 |
+| AC-018 | `shows the 254 message on a submitted term over 254 characters after trimming, and sends nothing`; `sends a submitted term of exactly 254 characters (boundary)`; `removes the 254 message after a valid term is submitted` | partly; see finding 18 |
+| AC-049 | `listParams.test.ts` (254, 254 padded, 255, 255 padded, absent); `opening the address with an over-long term` / `... padded with spaces` (no request, no list state, the link is still shown); `submitting a valid term from the over-long address state ...`; `shows the 254 message again, with no request, on Back ...`; `sends a request for an address term of exactly 254 characters (boundary)` | yes |
+
+**Mutation (scratch copy, 22 mutants, full suite):** 16 were killed:
+- `isPending` loading (see below);
+- `enabled` forced on, or ignored by the hook (fails 4 each);
+- `>=` instead of `>` in `readListParams` (fails 4) and in the form (fails 1);
+- the too-long check on the untrimmed value, in the address and in the form;
+- the form sending anyway;
+- the reset block missing `setError(initialError)`, or setting it to `null` (each killed by the Back test);
+- the reset block missing `setTerm` (fails 4);
+- `aria-invalid` removed (fails 4);
+- `aria-describedby` removed (fails 6);
+- `initialError` always null (fails 4);
+- the no-match branch off (fails 2).
+
+Survivors:
+- `setError(null)` removed from a valid submit (finding 18).
+- Clear search keeping the current page (finding 19).
+- The no-match text using the raw, untrimmed address term (Nit 21).
+- The no-match/empty decision by `items.length` (T-08 AC-028 owns it).
+- Clear search with `replace` (no AC demands a push for Clear).
+- Removing the rule-0 guard `searchTooLong ? null :` (see below).
+
+**Checks the coordinator asked for:**
+- **The `isPending` mutant.**
+  - *With rule 0 in place:* the AC-049 tests can't see it, because rule 0 renders nothing first. It is still killed, by T-04's `shows loading, not the stale error, when Try again retries after a failed background refetch`.
+  - *With rule 0 removed as well:* AC-049 kills it (fails 4). So the comment in the AC-049 test ("a loading condition on isPending would show this") holds only if rule 0 is gone.
+  - *Rule 0 on its own:* removing it with the current `isFetching && (!data || isError)` loading condition is equivalent (82/82). A disabled, never-fetched query is idle with no data, so nothing renders anyway.
+  - *Verdict:* it's prescribed by the plan (rendering rule 0, the T-06 "Done when") and it guards against a future change to the loading condition. Under the spec 003 T-08 precedent that's a note, not drift.
+- **Render-time reset and `initialError` on Back.** Correct. The reset block now sets the term, `seenTerm` and the error from `initialError`.
+  - The Back test (valid → Back to the 255-character address) kills both "error not reset" and "error reset to null".
+  - Probed: header link from `?search=zed&page=2` after a 255-character submit error gives an empty box and no error.
+  - Probed: the same link clicked while already on `/contacts` keeps the typed 255 characters and the error, because the address didn't change. A `key` would behave the same, and no AC covers it, so it's not a finding.
+- **The `htmlFor` nit:** closed.
+- **`<p className="field-error">`** (Nit 20).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 18 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx (AC-018 block) | Removing `setError(null)` from `handleSubmit` passes 82/82. Every "message removed" test submits a term that changes the address, so the render-time reset clears the error instead. When the address *doesn't* change, the stale message stays. Two examples: on `/contacts`, submit 255 characters and then submit a blank box; or on `?search=ada`, submit 255 characters and then submit `ada` again. | Add an AC-018 test: on `/contacts`, submit 255 characters, then clear the box and press Enter. Assert that the message and `aria-invalid` are gone. Optionally, on `?search=ada`, submit 255 characters and then `ada` again. |
+| 19 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx (AC-017 test) | The AC-017 test starts at `?search=zed` (page 1), so a Clear that keeps the current page passes. The no-match state is reachable on page 2 (probed: `?search=zed&page=2` with `totalCount` 0 shows Clear search). AC-017 says "page 1 of the unfiltered list". | Start the AC-017 test at `/contacts?search=zed&page=2`, and assert that the request has `page=1` and the address is `/contacts`. |
+| 20 | Nit | implementer | web/src/features/contacts/ContactSearchForm.tsx:51 | `className="field-error"` is a global class with no CSS anywhere (`grep` finds only this line). Conventions use CSS modules, so this is a dead hook, and the error looks the same as body text. | Use a module class (for example a shared `FieldError` style that T-09's form can reuse), or drop the `className` until styling is wanted. |
+| 21 | Nit | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx (AC-016 test) | AC-016 says the message shows "the trimmed term". The test types ` zed `, so the form trims it before it reaches the address. Rendering the raw address term passes. | Add a row that opens `/contacts?search=%20zed%20` with 0 results and expects `No contacts match "zed".` |
+
+**Notes:**
+- **Plan conformance.**
+  - `MAX_SEARCH_LENGTH`, `ListAddress`, `readListParams` and `maxLengthMessage` match the plan, and the submit and address checks share them.
+  - The hook takes `{ enabled }` and passes it to `useQuery`.
+  - The error id `contact-search-error` is linked through `aria-describedby`, with `aria-invalid="true"`.
+  - `initialError` is typed `string | null` and required, where the plan has `initialError?: string`. That's harmless.
+- **Minimality.** `validationMessages.ts` holds only `maxLengthMessage`; `REQUIRED` and `INVALID_EMAIL` wait for the form tasks. No paging and no "empty page" state.
+- **Accessibility.** The no-match message and Clear search sit in a plain `div`. The spec asks for no live region there.
+
+**Commit:** there are no Blocking findings, so T-06 can be committed. Findings 18 and 19 are test-only, a few lines each. Land them in a short fix cycle, or first thing in T-07; they shouldn't slip past T-07.

@@ -230,4 +230,241 @@ describe('Contacts list page: search', () => {
     await waitFor(() => expect(getLocation().search).toBe(''))
     expect(screen.getByRole('searchbox', { name: 'Search contacts' })).toHaveValue('')
   })
+  describe('no match, clear, and too-long terms', () => {
+    const TOO_LONG = 'Must be 254 characters or fewer.'
+    const long = (n: number) => 'x'.repeat(n)
+
+    it('shows the no-match message and Clear search, and no table, paging or empty message [AC-016]', async () => {
+      listBy({})
+      const { user } = renderWithProviders(<App />, { route: '/contacts' })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+
+      await user.type(box, ' zed {Enter}')
+
+      expect(await screen.findByText('No contacts match "zed".')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument()
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+      expect(screen.queryByText('No contacts yet.', { exact: false })).not.toBeInTheDocument()
+    })
+
+    it('empties the box and requests the unfiltered page 1 on Clear search [AC-017]', async () => {
+      const requests = recordRequests()
+      listBy({ 'page:1': 'Unfiltered' })
+      const { user, getLocation } = renderWithProviders(<App />, {
+        route: '/contacts?search=zed&page=2',
+      })
+      await user.click(await screen.findByRole('button', { name: 'Clear search' }))
+
+      expect(await screen.findByText(/Unfiltered Row/)).toBeInTheDocument()
+      expect(screen.getByRole('searchbox', { name: 'Search contacts' })).toHaveValue('')
+      expect(getLocation().pathname).toBe('/contacts')
+      expect(getLocation().search).toBe('')
+      const last = lastListGet(requests)
+      expect(last.url.searchParams.get('page')).toBe('1')
+      expect(last.url.searchParams.has('search')).toBe(false)
+    })
+
+    it('shows the 254 message on a submitted term over 254 characters after trimming, and sends nothing [AC-018]', async () => {
+      const requests = recordRequests()
+      listBy({})
+      const { user, getLocation } = renderWithProviders(<App />, { route: '/contacts' })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      await screen.findByText('No contacts yet.', { exact: false })
+      const before = listGets(requests).length
+      const term = long(255)
+
+      await user.click(box)
+      await user.paste(`  ${term}  `)
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+
+      await waitFor(() => expect(box).toHaveAccessibleDescription(TOO_LONG))
+      expect(box).toHaveAttribute('aria-invalid', 'true')
+      await new Promise((r) => setTimeout(r, 50))
+      expect(listGets(requests)).toHaveLength(before)
+      expect(listGets(requests).some((r) => r.url.searchParams.get('search') === term)).toBe(false)
+      expect(getLocation().search).toBe('')
+    })
+
+    it('sends a submitted term of exactly 254 characters (boundary) [AC-018]', async () => {
+      const requests = recordRequests()
+      listBy({})
+      const { user, getLocation } = renderWithProviders(<App />, { route: '/contacts' })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      const term = long(254)
+
+      await user.click(box)
+      await user.paste(` ${term} `)
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+
+      await waitFor(() =>
+        expect(listGets(requests).some((r) => r.url.searchParams.get('search') === term)).toBe(
+          true,
+        ),
+      )
+      expect(getLocation().search).toBe(`?search=${term}`)
+      expect(box).not.toHaveAttribute('aria-invalid', 'true')
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+    })
+
+    it('removes the 254 message after a valid term is submitted [AC-018]', async () => {
+      listBy({ ada: 'Adaresult' })
+      const { user } = renderWithProviders(<App />, { route: '/contacts' })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      await user.click(box)
+      await user.paste(long(255))
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+      await waitFor(() => expect(box).toHaveAccessibleDescription(TOO_LONG))
+
+      await user.clear(box)
+      await user.type(box, 'ada{Enter}')
+
+      expect(await screen.findByText(/Adaresult Row/)).toBeInTheDocument()
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+      expect(screen.getByRole('searchbox', { name: 'Search contacts' })).not.toHaveAttribute(
+        'aria-invalid',
+        'true',
+      )
+    })
+
+    it('shows the no-match message with the trimmed term for a padded address term [AC-016]', async () => {
+      listBy({})
+
+      renderWithProviders(<App />, { route: '/contacts?search=%20zed%20' })
+
+      expect(await screen.findByText('No contacts match "zed".')).toBeInTheDocument()
+    })
+
+    it('removes the 254 message when the box is cleared and submitted [AC-018]', async () => {
+      listBy({})
+      const { user } = renderWithProviders(<App />, { route: '/contacts' })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      await user.click(box)
+      await user.paste(long(255))
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+      await waitFor(() => expect(box).toHaveAccessibleDescription(TOO_LONG))
+
+      await user.clear(box)
+      await user.type(box, '{Enter}')
+
+      await waitFor(() => expect(box).not.toHaveAttribute('aria-invalid', 'true'))
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+    })
+
+    it('removes the 254 message when the unchanged address term is submitted again [AC-018]', async () => {
+      listBy({ ada: 'Adaresult' })
+      const { user, getLocation } = renderWithProviders(<App />, {
+        route: '/contacts?search=ada',
+      })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      expect(await screen.findByText(/Adaresult Row/)).toBeInTheDocument()
+      await user.clear(box)
+      await user.paste(long(255))
+      await user.click(screen.getByRole('button', { name: 'Search' }))
+      await waitFor(() => expect(box).toHaveAccessibleDescription(TOO_LONG))
+
+      await user.clear(box)
+      await user.type(box, 'ada{Enter}')
+
+      await waitFor(() => expect(box).not.toHaveAttribute('aria-invalid', 'true'))
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+      expect(getLocation().search).toBe('?search=ada')
+    })
+
+    describe.each([
+      ['an over-long term', (t: string) => t],
+      ['an over-long term padded with spaces', (t: string) => `%20%20${t}%20%20`],
+    ])('opening the address with %s', (_name, encode) => {
+      it('shows the term with the 254 message and none of the list states, and sends no request [AC-049]', async () => {
+        const requests = recordRequests()
+        listBy({})
+        const term = long(255)
+
+        renderWithProviders(<App />, { route: `/contacts?search=${encode(term)}` })
+
+        const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+        expect(box).toHaveValue(term)
+        expect(box).toHaveAccessibleDescription(TOO_LONG)
+        expect(box).toHaveAttribute('aria-invalid', 'true')
+        expect(screen.getByRole('link', { name: 'New contact' })).toHaveAttribute(
+          'href',
+          '/contacts/new',
+        )
+        await new Promise((r) => setTimeout(r, 100))
+        expect(requests).toHaveLength(0)
+        // A disabled query is pending but idle: a loading condition on isPending would show this.
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+        expect(screen.queryByText('Loading contacts…')).not.toBeInTheDocument()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(screen.queryByText('No contacts yet.', { exact: false })).not.toBeInTheDocument()
+        expect(screen.queryByText(/No contacts match/)).not.toBeInTheDocument()
+        expect(screen.queryByRole('table')).not.toBeInTheDocument()
+        expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('submitting a valid term from the over-long address state sends one request and removes the message [AC-049]', async () => {
+      const requests = recordRequests()
+      listBy({ ada: 'Adaresult' })
+      const { user, getLocation } = renderWithProviders(<App />, {
+        route: `/contacts?search=${long(255)}`,
+      })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      await waitFor(() => expect(box).toHaveAccessibleDescription(TOO_LONG))
+
+      await user.clear(box)
+      await user.type(box, 'ada{Enter}')
+
+      expect(await screen.findByText(/Adaresult Row/)).toBeInTheDocument()
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+      expect(box).not.toHaveAttribute('aria-invalid', 'true')
+      expect(getLocation().search).toBe('?search=ada')
+      expect(listGets(requests)).toHaveLength(1)
+      const only = listGets(requests)[0]
+      expect(only.url.searchParams.get('search')).toBe('ada')
+      expect(only.url.searchParams.get('page')).toBe('1')
+    })
+
+    it('shows the 254 message again, with no request, on Back to the over-long address [AC-049]', async () => {
+      const requests = recordRequests()
+      listBy({ ada: 'Adaresult' })
+      const term = long(255)
+      const { user, goBack, getLocation } = renderWithProviders(<App />, {
+        route: `/contacts?search=${term}`,
+      })
+      const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+      await waitFor(() => expect(box).toHaveAccessibleDescription(TOO_LONG))
+      await user.clear(box)
+      await user.type(box, 'ada{Enter}')
+      expect(await screen.findByText(/Adaresult Row/)).toBeInTheDocument()
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+      const before = requests.length
+
+      await goBack()
+
+      expect(getLocation().search).toBe(`?search=${term}`)
+      const again = screen.getByRole('searchbox', { name: 'Search contacts' })
+      await waitFor(() => expect(again).toHaveAccessibleDescription(TOO_LONG))
+      expect(again).toHaveValue(term)
+      expect(again).toHaveAttribute('aria-invalid', 'true')
+      await new Promise((r) => setTimeout(r, 100))
+      expect(requests).toHaveLength(before)
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('sends a request for an address term of exactly 254 characters (boundary) [AC-049]', async () => {
+      const requests = recordRequests()
+      listBy({})
+      const term = long(254)
+
+      renderWithProviders(<App />, { route: `/contacts?search=${term}` })
+
+      await waitFor(() => expect(listGets(requests)).toHaveLength(1))
+      expect(listGets(requests)[0].url.searchParams.get('search')).toBe(term)
+      const box = screen.getByRole('searchbox', { name: 'Search contacts' })
+      expect(box).not.toHaveAttribute('aria-invalid', 'true')
+      expect(screen.queryByText(TOO_LONG)).not.toBeInTheDocument()
+    })
+  })
 })

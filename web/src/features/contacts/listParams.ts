@@ -1,12 +1,23 @@
 import type { ContactListParams } from './useContacts'
 
-/** Reads the list state from the address. Search is trimmed; blank or absent becomes null. */
-export function readListParams(searchParams: URLSearchParams): ContactListParams {
+/** API `ListQuery.MaxSearchLength`. */
+export const MAX_SEARCH_LENGTH = 254
+
+export type ListAddress = { params: ContactListParams; searchTooLong: boolean }
+
+/**
+ * Reads the list state from the address. Search is trimmed; blank or absent becomes null.
+ * An over-long term is kept in `params.search` (so the box can show it) and flagged.
+ */
+export function readListParams(searchParams: URLSearchParams): ListAddress {
   const page = Number(searchParams.get('page'))
   const search = searchParams.get('search')?.trim() ?? ''
   return {
-    page: Number.isInteger(page) && page >= 1 ? page : 1,
-    search: search === '' ? null : search,
+    params: {
+      page: Number.isInteger(page) && page >= 1 ? page : 1,
+      search: search === '' ? null : search,
+    },
+    searchTooLong: search.length > MAX_SEARCH_LENGTH,
   }
 }
 

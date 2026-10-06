@@ -115,7 +115,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/listParams.ts` (`readListParams`/`toSearchParams`, search part), `C/ContactSearchForm.tsx`, `C/ContactsPage.tsx`
   - **Done when:** the ACs pass. The search form resets its text (and, from T-06, its error) when the address term changes, by adjusting state during render rather than with a `key`, so focus survives a submit. The suite, lint, typecheck, and build are green.
 
-- [ ] T-06: Search: no match, clear, too long (submitted or in the address)
+- [x] T-06: Search: no match, clear, too long (submitted or in the address) — done 2026-10-06: no-match + Clear search, 254 limit on submit and in the address (query disabled), shared message; review APPROVE, findings 18–21 closed (guards with mutants proven, FieldError CSS module)
   - **ACs:** AC-016, AC-017, AC-018, AC-049
   - **Depends on:** T-05
   - **Tests (test-writer):**
