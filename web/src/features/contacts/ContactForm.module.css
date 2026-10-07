@@ -1,0 +1,27 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 32rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.field input,
+.field textarea {
+  font: inherit;
+  padding: 0.375rem 0.5rem;
+}
+
+.required {
+  color: #b3261e;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}

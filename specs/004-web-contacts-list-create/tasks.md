@@ -154,7 +154,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/ContactsPage.tsx`
   - **Done when:** the ACs pass (AC-026 may be a guard; AC-028 fails at RED). The suite, lint, typecheck, and build are green.
 
-- [ ] T-09: Create form: fields, client-side rules, accessible errors, cancel
+- [x] T-09: Create form: fields, client-side rules, accessible errors, cancel — done 2026-10-07: ContactForm with six fields, client rules mirroring ContactInput, accessible errors, Cancel; review APPROVE after 1 fix cycle (early isSaving removed; textarea/marker/novalidate guards)
   - **ACs:** AC-029, AC-030, AC-031, AC-032, AC-033, AC-035, AC-047, AC-048
   - **Depends on:** T-06 (`lib/validationMessages.ts`), T-02
   - **Tests (test-writer):**

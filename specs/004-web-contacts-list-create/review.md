@@ -537,3 +537,62 @@ Survivors:
 - **Gates:** 137/137 tests, lint, typecheck, build, Prettier clean.
 - **Harness gap:** `path-guard.sh` only covers Edit/Write/MultiEdit/NotebookEdit; Bash edits and `git checkout`/`git restore` bypass role write-boundaries. Raised with the owner.
 - The reviewer's re-check run stalled before reporting; T-08's earlier APPROVE stands.
+
+## T-09: 2026-10-07: CHANGES_REQUESTED
+
+**Checks:** tests pass, 217/217 in 11 files · lint pass (oxlint; no .cs changes) · typecheck pass · web build pass · `prettier --check` on the 7 changed/new web files: clean · grep: no `console.`, no `fetch(` outside `api/client.ts`.
+**Stability:** `NewContactPage.validation.test.tsx` passed 3/3 runs on its own.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-029 | `shows the New contact heading, six labelled fields, Save and Cancel`; `marks First name as required and the other fields as optional`; `starts with every field empty and no errors`; unit `lists the fields in form order` | yes. The exact name `First name` kills a visible-marker-not-`aria-hidden` mutant (20 fail). See Nit 25 |
+| AC-030 | page: empty and spaces-only rows; unit: 3 blank rows + `validateContactField` | yes for the message. "SHALL NOT send" can't fail yet because `onSubmit` is a no-op (carry-forward to T-11) |
+| AC-031 | page: one row per field at max+1 (only that field errored, single message), padded max+1; unit: max, max+1, padded max per field | yes |
+| AC-032 | page: `ada@`, over-long invalid email; unit: the tasks.md email table plus `a@b c`, `a\t@b`, two-`@` over-long | yes |
+| AC-033 | page: three errors at once; unit: all six at once | yes (`break` after the first error fails 3) |
+| AC-034 (rules) | unit: each field at exactly max, all optional blank, whitespace-only optional fields, blank email | yes at the rules level; the page half is T-11 |
+| AC-035 | `marks each errored field aria-invalid ...`; `toHaveAccessibleDescription` in AC-030 to AC-033 rows | yes (`aria-invalid` removed fails 1, `aria-describedby` removed fails 11) |
+| AC-047 | Cancel with typed input, from an errored form, from an untouched form | yes (Cancel to `/` fails 1) |
+| AC-048 | `shows an empty form with no errors when the page is opened again after cancelling` | yes |
+
+**Client/server parity** (against `ContactInput.cs`): the limits 100/100/254/50/200/4000 match. Both sides trim before checking, a blank first name gives `Required.`, and optional blanks are skipped. `isValidEmail` matches `IsValidEmail` term by term. Email precedence matches: the server writes the length error and then overwrites it with the invalid-email message, and the client returns the invalid-email message first (`email_len_first` mutant fails 4). Remaining difference: JS `\s`/`trim()` vs .NET `char.IsWhiteSpace`/`Trim()` disagree on U+0085 and U+FEFF. This is an accepted plan risk (plan "Risks"), so it isn't a finding.
+
+**Mutation (scratch copy, 24 mutants, the two T-09 files):** 16 were killed. Killed: each `isValidEmail` term, including `\s` narrowed to a space; no trim; Required for every blank field; `>=` vs `>`; email length checked first; first error only; no `aria-invalid`, `aria-describedby` or `aria-required`; visible marker not `aria-hidden`; `required` attribute added; `maxLength` added; Cancel target changed.
+Survivors:
+- `if (isSaving) return` removed, `disabled={isSaving}` removed, `Saving…` label removed. All three survive because the prop is always `false` (Finding 23).
+- `onSubmit` called even with errors. That's expected while `onSubmit` is a no-op. **Carry to T-11:** this mutant must die once the form POSTs.
+- `noValidate` removed. It's equivalent in jsdom with `type="text"` and no constraint attributes (Nit 26).
+- Notes as `<input>` instead of `<textarea>` (Nit 25).
+- `' *'` marker removed (Nit 25).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 23 | Blocking | implementer | web/src/features/contacts/ContactForm.tsx:15,40,46,93-94; NewContactPage.tsx:8 | The `isSaving` behaviour (submit guard, `disabled`, `Saving…` label) is AC-039, which T-11 owns. No T-09 test demands it, and all three mutants survive (0 fails). The tasks.md "Minimal implementation" rule and constitution §2 forbid it. It also makes T-11 RED weaker: once `isPending` is wired, the ContactForm half of AC-039 would pass without ever having failed. This is the same precedent as spec 002 T-02 (forbidden early items with 0 fails were Blocking). `serverErrors` was correctly left out, and `isSaving` should be treated the same way. | Remove the `isSaving` prop, the `if (isSaving) return` guard, `disabled={isSaving}` and the ternary label (render `Save`), and drop `isSaving={false}` from `NewContactPage`. Tests stay untouched. T-11 adds it back with AC-039 failing first. |
+| 24 | Nit | implementer | web/src/features/contacts/ContactForm.tsx:82 | Email is `type="text"`. The plan's risk note ("`type="email"` with `noValidate` avoids browser bubbles") assumes an email input, which also gives the email keyboard on mobile. No AC pins it. | Optionally use `type="email"` for the Email field (its role is still `textbox`). Otherwise leave it and note it in the plan. |
+| 25 | Nit | test-writer | web/src/features/contacts/NewContactPage.validation.test.tsx (AC-029 tests) | Two plan details are unpinned: Notes as a `textarea` (exact UI table) and the visible `aria-hidden` required marker. Mutants that change Notes to `<input>` or remove the `' *'` marker both pass. | Optionally assert `field('Notes')` is a `TEXTAREA` (or has the `multiline` semantics), and that the First name label contains a visible `*` that isn't part of its name. |
+| 26 | Nit | test-writer | NewContactPage.validation.test.tsx | tasks.md "Done when" requires `noValidate`, but no test checks it, and removing it passes (equivalent in jsdom today). | Optionally assert that the form element (e.g. `field('First name').closest('form')`) has the `novalidate` attribute. |
+
+**Notes:**
+- **Error ids.** They're `contact-{field}-error`, while the plan table says `{field}-error`. The tests can't observe this (they go through the accessible description), and the ids are unique and don't clash with `contact-search-error`. Not a finding.
+- **Messages.** `REQUIRED` and `INVALID_EMAIL` were added to `lib/validationMessages.ts`, matching the plan signatures. The field error reuses `components/FieldError.module.css`, which closes the spirit of Nit 20.
+- **`serverErrors` omitted (question 2).** Correct: tasks.md says "No server-error display before T-13". Add it at T-13 with AC-040 failing first. The T-01 follow-up (a 400 with empty `errors` is `unexpected`) only matters at T-13/T-14.
+- **Re-review scope after the fix.** Confirm the 4 `isSaving` edits are gone, the tests are byte-identical, and 217/217 still pass.
+
+**Commit:** not yet. Finding 23 is Blocking, so T-09 shouldn't be committed until it's fixed.
+
+### T-09 re-review after fix cycle 1: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 220/220 (217 + 3 new AC-029 guards) · lint pass · typecheck pass · `prettier --check` on `features/contacts`: clean.
+
+- **Finding 23: closed.** `grep isSaving|Saving|disabled` over `ContactForm.tsx` and `NewContactPage.tsx` finds nothing. The page now renders `<ContactForm onSubmit={() => {}} cancelTo="/contacts" />`. The props are `onSubmit` and `cancelTo` only, and `isSaving` comes back at T-11 with AC-039 failing first.
+- **Nits 25 and 26: closed.** I re-ran the earlier survivors on a fresh scratch copy (`diff -r` showed it identical to the working tree):
+  - Notes as `<input>` fails 1;
+  - `' *'` marker removed fails 1;
+  - `noValidate` removed fails 1.
+  The new tests use `tagName`, `labels` and `container.querySelector('form')`. That's acceptable, because these attributes have no role or label to query by (conventions allow it when no accessible alternative exists).
+- **Nit 24** (`type="email"`): skipped as optional, which is accepted.
+- **Carry to T-11:** "always call `onSubmit`" still survives (83/83), as expected while `onSubmit` is a no-op. It must die once the form POSTs.
+
+**Commit:** T-09 can be committed.
