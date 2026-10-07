@@ -791,3 +791,38 @@ Re-checking the whole form on each change is equivalent, because every field was
 - **Minimality:** still clean. There's no T-14 save-failed message.
 
 **Commit:** no open Blocking or Should-fix findings, so T-13 can be committed.
+
+## T-14: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 301/301 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 3/3 runs on its own (48/48) · no `console.` outside tests.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-043 | page, 5 rows (500 problem with secret detail, network error, 400 without `errors`, 400 with `errors: {}`, 400 with `{ firstName: [] }`): alert text, no title or detail leak, values kept, Save enabled, page and path unchanged, one POST, no field marked invalid. Unit: `unexpected` rows, plain `Error`/string/`null`/`undefined`/look-alike object rows, no title or detail leak, exported text | yes |
+| AC-044 | 409, then a held resubmit: no duplicate message or alert while pending, then only the Phone error (guard). 500, then a held resubmit: alert hidden while pending, then back. 500, then success: no alert and the confirmation shows. 500, then a client-blocked resubmit: alert hidden, one POST | yes |
+
+**T-01 carry-forward: confirmed.** A 400 with `errors: {}` and a 400 with `{ firstName: [] }` both show `The contact couldn't be saved. Try again.` (page rows 4 and 5). Each is pinned against the client classifier:
+- removing `lists.length > 0` in `isFieldErrors`: fails 2;
+- removing `messages.length > 0`: fails 2.
+Without these, the response would be classed as `validation` and nothing would show.
+
+**`serverHidden` covers the alert on a blocked submit: confirmed.** The `hides the save-failed alert when the next submit is blocked by client validation` test, plus mutants:
+- the alert ignoring `serverHidden`: fails 2;
+- no `setServerHidden(true)` on submit: fails 2.
+
+**Mutation (scratch copy, full `src`, 9 mutants):** all killed. Besides the four above:
+- no `else` branch (`unexpected` shows nothing): fails 11
+- a non-`ApiError` mapping to empty: fails 5
+- SAVE_FAILED pushed for every kind: fails 8
+- SAVE_FAILED added to a conflict: fails 2
+- message text changed: fails 17
+
+**Findings:** none.
+
+**Notes:**
+- **Minimality:** the only production change is `contactFormErrors.ts`. No form or page changes were needed, because T-13's `serverErrors`, alert and `serverHidden` already carry the new message.
+- **For the FINAL smoke (NFR-006):** jsdom doesn't blur a focused button when it becomes disabled. Browsers do, so after an unexpected failure focus may sit on `body` while the alert is announced. No AC covers focus for a form-level error. Check it by hand during the smoke and note the result; it isn't a finding.
+- **This completes the form side (T-09 to T-14).** Open Nits carried to FINAL: 24 (`type="email"`, skipped) and 28 (blank firstName → `''` unit row, deferred in tasks.md).
+
+**Commit:** no Blocking findings, so T-14 can be committed.

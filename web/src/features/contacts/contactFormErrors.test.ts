@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
-import { DUPLICATE_EMAIL_MESSAGE, toContactFormErrors } from './contactFormErrors'
+import {
+  DUPLICATE_EMAIL_MESSAGE,
+  SAVE_FAILED_MESSAGE,
+  toContactFormErrors,
+} from './contactFormErrors'
 
 function validation(errors: Record<string, string[]>) {
   return new ApiError({
@@ -89,5 +93,47 @@ describe('toContactFormErrors: conflict', () => {
 
   it('exports the duplicate-email message text [AC-042]', () => {
     expect(DUPLICATE_EMAIL_MESSAGE).toBe('A contact with this email already exists.')
+  })
+})
+
+describe('toContactFormErrors: unexpected failures', () => {
+  const SAVE_FAILED = { fields: {}, form: ["The contact couldn't be saved. Try again."] }
+
+  it('exports the save-failed message text [AC-043]', () => {
+    expect(SAVE_FAILED_MESSAGE).toBe("The contact couldn't be saved. Try again.")
+  })
+
+  it.each([
+    [
+      'a 500',
+      { kind: 'unexpected' as const, status: 500, problem: { status: 500, title: 'Boom' } },
+    ],
+    ['a network failure', { kind: 'unexpected' as const, status: null }],
+    [
+      'a 400 without errors',
+      { kind: 'unexpected' as const, status: 400, problem: { status: 400 } },
+    ],
+  ])('maps an unexpected ApiError (%s) to the form-level message only [AC-043]', (_label, init) => {
+    expect(toContactFormErrors(new ApiError(init))).toEqual(SAVE_FAILED)
+  })
+
+  it.each([
+    ['a plain Error', new Error('boom')],
+    ['a string', 'boom'],
+    ['null', null],
+    ['undefined', undefined],
+    ['a plain object', { kind: 'validation' }],
+  ])('maps %s that is not an ApiError to the form-level message [AC-043]', (_label, error) => {
+    expect(toContactFormErrors(error)).toEqual(SAVE_FAILED)
+  })
+
+  it('does not leak the problem title or detail into the message [AC-043]', () => {
+    const error = new ApiError({
+      kind: 'unexpected',
+      status: 500,
+      problem: { status: 500, title: 'SECRET-TITLE', detail: 'SECRET-DETAIL' },
+    })
+
+    expect(JSON.stringify(toContactFormErrors(error))).not.toMatch(/SECRET/)
   })
 })

@@ -228,7 +228,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/contactFormErrors.ts`, `C/NewContactPage.tsx`, `C/ContactForm.tsx`
   - **Done when:** the ACs pass. The suite, lint, typecheck, and build are green.
 
-- [ ] T-14: Create: unexpected failure and resubmitting
+- [x] T-14: Create: unexpected failure and resubmitting — done 2026-10-07: SAVE_FAILED_MESSAGE for unexpected and non-ApiError failures (incl. 400 with empty errors), clean resubmit; review APPROVE, no findings
   - **ACs:** AC-043, AC-044
   - **Depends on:** T-13
   - **Tests (test-writer):**

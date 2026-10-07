@@ -7,7 +7,7 @@ import { App } from '../../App'
 import { deferred } from '../../test/deferred'
 import { aContact, contactsPage } from '../../test/msw/fixtures'
 import { recordRequests } from '../../test/msw/requests'
-import { conflictProblem, validationProblem } from '../../test/msw/problems'
+import { conflictProblem, problemJson, validationProblem } from '../../test/msw/problems'
 import { server } from '../../test/msw/server'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
@@ -728,5 +728,135 @@ describe('Create contact page: repeated unknown-key messages', () => {
     const alert = await screen.findByRole('alert')
     expect(within(alert).getAllByText('Same message.')).toHaveLength(2)
     expect(consoleError).not.toHaveBeenCalled()
+  })
+})
+
+const SAVE_FAILED = "The contact couldn't be saved. Try again."
+
+describe('Create contact page: unexpected failure', () => {
+  it.each([
+    ['a 500 problem', () => problemJson(500, { title: 'Boom', detail: 'SECRET-DETAIL' })],
+    ['a network error', () => HttpResponse.error()],
+    ['a 400 without errors', () => problemJson(400, { title: 'Bad request' })],
+    ['a 400 with an empty errors dictionary', () => validationProblem({})],
+    ['a 400 whose only key has no messages', () => validationProblem({ firstName: [] })],
+  ])(
+    'shows the save-failed alert, keeps the values, and re-enables Save for %s [AC-043]',
+    async (_label, respond) => {
+      server.use(http.post('/api/contacts', respond))
+      const { user, requests, getLocation } = renderCreatePage()
+      await fillAllValid(user)
+
+      await save(user)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(SAVE_FAILED)
+      expect(screen.queryByText(/SECRET-DETAIL|Boom/)).not.toBeInTheDocument()
+      expectAllValuesKept()
+      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+      expect(screen.getByRole('heading', { level: 1, name: 'New contact' })).toBeInTheDocument()
+      expect(getLocation().pathname).toBe('/contacts/new')
+      expect(posts(requests)).toHaveLength(1)
+      for (const label of LABELS) {
+        expect(field(label)).not.toHaveAttribute('aria-invalid', 'true')
+      }
+    },
+  )
+})
+
+describe('Create contact page: resubmitting after a failure', () => {
+  it('shows no duplicate message and no alert while the second attempt is pending, then only the new error [AC-044]', async () => {
+    const gate = deferred()
+    let calls = 0
+    server.use(
+      http.post('/api/contacts', async () => {
+        calls += 1
+        if (calls === 1) return conflictProblem()
+        await gate.promise
+        return validationProblem({ phone: ['Must be 50 characters or fewer.'] })
+      }),
+    )
+    const { user, requests } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    await screen.findByText(DUPLICATE)
+
+    await save(user)
+
+    await screen.findByRole('button', { name: 'Saving…' })
+    expect(screen.queryByText(DUPLICATE)).not.toBeInTheDocument()
+    expect(field('Email')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    gate.resolve()
+
+    expect(await screen.findByText('Must be 50 characters or fewer.')).toBeInTheDocument()
+    expect(field('Phone')).toHaveAccessibleDescription('Must be 50 characters or fewer.')
+    expect(screen.queryByText(DUPLICATE)).not.toBeInTheDocument()
+    expect(field('Email')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(posts(requests)).toHaveLength(2)
+  })
+
+  it('hides the save-failed alert while the second attempt is pending [AC-044]', async () => {
+    const gate = deferred()
+    let calls = 0
+    server.use(
+      http.post('/api/contacts', async () => {
+        calls += 1
+        if (calls === 1) return problemJson(500)
+        await gate.promise
+        return problemJson(500)
+      }),
+    )
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(SAVE_FAILED)
+
+    await save(user)
+
+    await screen.findByRole('button', { name: 'Saving…' })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    gate.resolve()
+    expect(await screen.findByRole('alert')).toHaveTextContent(SAVE_FAILED)
+  })
+
+  it('leaves no alert behind and shows the confirmation when the second attempt succeeds after a 500 [AC-044]', async () => {
+    let calls = 0
+    server.use(
+      http.post('/api/contacts', async ({ request }) => {
+        calls += 1
+        if (calls === 1) return problemJson(500)
+        const body = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(
+          { ...body, id: '00000000-0000-7000-8000-00000000ffff' },
+          { status: 201 },
+        )
+      }),
+    )
+    const { user, requests, getLocation } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(SAVE_FAILED)
+
+    await save(user)
+
+    await findConfirmation('Contact "Ada Lovelace" created.')
+    expect(getLocation().pathname).toBe('/contacts')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(posts(requests)).toHaveLength(2)
+  })
+
+  it('hides the save-failed alert when the next submit is blocked by client validation [AC-044]', async () => {
+    server.use(http.post('/api/contacts', () => problemJson(500)))
+    const { user, requests } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(SAVE_FAILED)
+    await fill(user, 'Phone', 'x'.repeat(51))
+
+    await save(user)
+
+    expect(await screen.findByText('Must be 50 characters or fewer.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(posts(requests)).toHaveLength(1)
   })
 })
