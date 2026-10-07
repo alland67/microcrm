@@ -53,6 +53,13 @@ export function ContactsPage() {
         <p className={styles.message}>
           No contacts yet. <Link to="/contacts/new">Add a contact</Link>
         </p>
+      ) : data && data.items.length === 0 ? (
+        <div className={styles.message}>
+          <p>This page is empty.</p>
+          <button type="button" onClick={() => handlePageChange(1)}>
+            Go to first page
+          </button>
+        </div>
       ) : (
         data && (
           <>

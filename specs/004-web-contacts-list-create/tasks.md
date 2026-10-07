@@ -145,7 +145,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `components/Pagination.tsx` (+ `.module.css`), `C/listParams.ts`, `C/ContactsPage.tsx`
   - **Done when:** the ACs pass. The suite, lint, typecheck, and build are green.
 
-- [ ] T-08: Back restores the view; empty page beyond the last
+- [x] T-08: Back restores the view; empty page beyond the last — done 2026-10-07: empty page beyond last (Go to first page), AC-026 guard; review APPROVE, nit 22 closed (guard verified in scratch after a restore incident)
   - **ACs:** AC-026, AC-028
   - **Depends on:** T-06, T-07
   - **Tests (test-writer):** `C/ContactsPage.paging.test.tsx` (extended):

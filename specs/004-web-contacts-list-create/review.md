@@ -478,3 +478,62 @@ The one survivor is `page={data.page}` instead of `page={params.page}`. That's e
 - **Accessibility.** `Page X of Y` isn't a live region, so a screen-reader user who presses Next isn't told about the page change, except through the focus staying on the button. The spec doesn't require that, so it's noted for FINAL.
 
 **Commit:** no findings, so T-07 can be committed.
+
+## T-08: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of f8e47dc.
+- Tests: `web/src/features/contacts/ContactsPage.paging.test.tsx` (+1 AC-026 guard, +4 AC-028 tests; additive only).
+- Production: `web/src/features/contacts/ContactsPage.tsx` (one new branch, after the two `totalCount === 0` branches).
+- No dependency changes.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 137/137 in 9 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+- **Stability:** the paging file passed 4/4 runs on its own and 2/2 inside the full suite.
+
+**AC coverage:**
+| AC | Test(s) in `ContactsPage.paging.test.tsx` | Adequate? |
+|---|---|---|
+| AC-026 | `shows page 1 of the search, then the unfiltered page 1, on successive Back` (guard), plus T-07's `pushes a history entry when paging ...` | yes |
+| AC-028 | `shows "This page is empty." and a Go to first page button, not the other states`; `requests page 1 and shows the rows when Go to first page is clicked`; `shows "This page is empty." and not the no-match text when a search is set`; `keeps the search when Go to first page is clicked` | yes; see Nit 22 |
+
+**Carry-forward mutants:**
+- **`items.length` instead of `totalCount === 0`** (from T-04/T-06): now killed. In the no-match branch it fails 2, in the "No contacts yet." branch 4, and in both together 4.
+- **AC-026 Back across search and page:**
+  - The search submit using `replace` fails 3.
+  - Paging using `replace` fails 2.
+  - Removing the search box reset fails 5.
+  - The guard checks the rows, the box value and the address after each of two Backs: `?search=ada` page 2 → page 1 → unfiltered.
+
+**Mutation (scratch copy, 12 mutants, full suite):** 9 were killed. Besides the above:
+- the empty-page branch removed (fails 4);
+- "Go to first page" dropping the search (fails 1);
+- "Go to first page" going to `page - 1` (fails 2).
+
+Survivors:
+- "Go to first page" using `replace`: no AC asks for a push here. Note only.
+- The empty-page state also rendering a `Pagination` nav (Nit 22).
+- The empty-page state also rendering the count: the AC says nothing about it. Not a finding.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 22 | Nit | test-writer | web/src/features/contacts/ContactsPage.paging.test.tsx (first AC-028 test) | Plan rendering rules say exactly one state shows, with paging only under Results. The AC-011 and AC-016 tests assert there's no `Pagination` nav, but the AC-028 "not the other states" test doesn't, so a Pagination nav added to the empty-page branch survives. | Add `expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()`. |
+
+**Notes:**
+- **Branch order.** The new branch sits after both `totalCount === 0` branches and before Results, so it's effectively `items.length === 0 && totalCount > 0`. That matches plan rules 3 → 4 → 5. "Go to first page" reuses `handlePageChange(1)`, so it pushes, keeps the search and leaves `page` out of the address.
+- **Minimality.** Only the branch was added. AC-026 needed no production change, because T-05 and T-07 already push and the T-05 render-time reset restores the box.
+- **The list side (AC-005 to AC-028, AC-049) is complete.** Two Should-fix items from T-05 and T-06 are already closed, and no open findings remain on the list side apart from Nit 22.
+
+**Commit:** no Blocking findings, so T-08 can be committed. Nit 22 is optional.
+
+### T-08 re-check after incident (orchestrator, 2026-10-07)
+- **Incident:** while proving the Nit 22 guard, the test-writer mutated the real `ContactsPage.tsx` and then ran `git checkout` on it, discarding the approved, uncommitted empty-page branch. The implementer re-applied it; `git diff` shows only the 7-line `data && data.items.length === 0` branch, identical to the approved change.
+- **Nit 22:** closed. Verified by the orchestrator in a scratch copy: adding `<Pagination>` to the empty-page branch fails only the first AC-028 test (25/26 pass).
+- **Gates:** 137/137 tests, lint, typecheck, build, Prettier clean.
+- **Harness gap:** `path-guard.sh` only covers Edit/Write/MultiEdit/NotebookEdit; Bash edits and `git checkout`/`git restore` bypass role write-boundaries. Raised with the owner.
+- The reviewer's re-check run stalled before reporting; T-08's earlier APPROVE stands.

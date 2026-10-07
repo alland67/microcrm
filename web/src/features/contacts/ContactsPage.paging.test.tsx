@@ -209,3 +209,98 @@ describe('Contacts list page: page from the address', () => {
     expect(lastListGet(requests).url.searchParams.get('page')).toBe('2')
   })
 })
+
+/** Rows labelled by search and page (stable ids); pages past `lastPage` are empty but totalCount stays. */
+function listWithSearch(totalCount: number, lastPage = 3) {
+  server.use(
+    http.get('/api/contacts', ({ request }) => {
+      const params = new URL(request.url).searchParams
+      const page = Number(params.get('page'))
+      const search = params.get('search') ?? 'all'
+      const id = `00000000-0000-7000-8000-${String(page).padStart(12, '0')}`
+      const items =
+        page > lastPage ? [] : [aContact({ id, firstName: `${search}p${page}`, lastName: 'Row' })]
+      return HttpResponse.json(contactsPage(items, { page, totalCount }))
+    }),
+  )
+}
+
+describe('Contacts list page: Back restores the view', () => {
+  it('shows page 1 of the search, then the unfiltered page 1, on successive Back [AC-026]', async () => {
+    listWithSearch(45)
+    const { user, goBack, getLocation } = renderWithProviders(<App />, { route: '/contacts' })
+    const box = await screen.findByRole('searchbox', { name: 'Search contacts' })
+    await screen.findByText(/allp1 Row/)
+    await user.type(box, 'ada{Enter}')
+    await screen.findByText(/adap1 Row/)
+    await user.click(within(pagination()).getByRole('button', { name: 'Next' }))
+    await screen.findByText(/adap2 Row/)
+
+    await goBack()
+
+    await waitFor(() => expect(screen.getByText(/adap1 Row/)).toBeInTheDocument())
+    expect(screen.getByRole('searchbox', { name: 'Search contacts' })).toHaveValue('ada')
+    expect(getLocation().search).toBe('?search=ada')
+
+    await goBack()
+
+    await waitFor(() => expect(screen.getByText(/allp1 Row/)).toBeInTheDocument())
+    expect(screen.getByRole('searchbox', { name: 'Search contacts' })).toHaveValue('')
+    expect(getLocation().search).toBe('')
+  })
+})
+
+describe('Contacts list page: empty page beyond the last', () => {
+  it('shows "This page is empty." and a Go to first page button, not the other states [AC-028]', async () => {
+    listWithSearch(45)
+    renderWithProviders(<App />, { route: '/contacts?page=9' })
+
+    expect(await screen.findByText('This page is empty.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to first page' })).toBeInTheDocument()
+    expect(screen.queryByText(/No contacts yet\./)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No contacts match/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+  })
+
+  it('requests page 1 and shows the rows when Go to first page is clicked [AC-028]', async () => {
+    const requests = recordRequests()
+    listWithSearch(45)
+    const { user, getLocation } = renderWithProviders(<App />, { route: '/contacts?page=9' })
+
+    await user.click(await screen.findByRole('button', { name: 'Go to first page' }))
+
+    expect(await screen.findByText(/allp1 Row/)).toBeInTheDocument()
+    expect(lastListGet(requests).url.searchParams.get('page')).toBe('1')
+    expect(getLocation().search).toBe('')
+    expect(screen.queryByText('This page is empty.')).not.toBeInTheDocument()
+  })
+
+  it('shows "This page is empty." and not the no-match text when a search is set [AC-028]', async () => {
+    listWithSearch(45)
+    renderWithProviders(<App />, { route: '/contacts?search=ada&page=9' })
+
+    expect(await screen.findByText('This page is empty.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to first page' })).toBeInTheDocument()
+    expect(screen.queryByText(/No contacts match/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/No contacts yet\./)).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('keeps the search when Go to first page is clicked [AC-028]', async () => {
+    const requests = recordRequests()
+    listWithSearch(45)
+    const { user, getLocation } = renderWithProviders(<App />, {
+      route: '/contacts?search=ada&page=9',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Go to first page' }))
+
+    expect(await screen.findByText(/adap1 Row/)).toBeInTheDocument()
+    const last = lastListGet(requests)
+    expect(last.url.searchParams.get('page')).toBe('1')
+    expect(last.url.searchParams.get('search')).toBe('ada')
+    expect(getLocation().search).toBe('?search=ada')
+  })
+})
