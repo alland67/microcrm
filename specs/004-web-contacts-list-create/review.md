@@ -718,3 +718,76 @@ Re-checking the whole form on each change is equivalent, because every field was
 - **Minimality:** clean. There's no server-error display (T-13) and no form-level message (T-14).
 
 **Commit:** no Blocking findings, so T-12 can be committed.
+
+## T-13: 2026-10-07: CHANGES_REQUESTED
+
+**Checks:** tests pass, 279/279 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 3/3 runs on its own (36/36) · no `SAVE_FAILED`/"couldn't be saved" in production code.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-040 | unit: known keys, two messages joined; page: `shows each 400 message verbatim under its field and keeps everything typed`, `re-enables Save after a 400`, `known-key ... and an unknown-key ... at once`, `replaces the old server errors when a resubmit is rejected differently` | yes |
+| AC-041 | unit: unknown key verbatim (all messages), split, no case-insensitive or prefix match; page: unknown key in an `alert` with values kept | yes |
+| AC-042 | unit: conflict ignores the title; page: duplicate message under Email, `aria-invalid`, `Conflict!` absent, values kept, no alert | yes |
+| AC-036 (server) | 409 focuses Email; 400 on company and lastName focuses Last name; error present at focus time | **no:** a client-blocked submit after a server error doesn't focus the first field showing an error (Finding 29) |
+| AC-037 (server) | duplicate removed when Email is edited to a valid address; client rule takes over; editing one field keeps the others; unedited field keeps its error | yes |
+
+**Mutation (scratch copy, `features/contacts`, 15 mutants):** 13 were killed.
+- Killed:
+  - join with `, `: fails 1
+  - first message only: fails 1
+  - unknown keys dropped: fails 5
+  - only the first unknown message: fails 1
+  - case-insensitive key match: fails 1
+  - 409 title used: fails 6
+  - no dismiss on edit: fails 3
+  - `dismissed` never reset: fails 12
+  - no server focus: fails 3
+  - focus the last server field: fails 1
+  - `hasFailedSubmit` not set by server errors: fails 1
+  - `role="alert"` removed: fails 2
+  - imperative focus during render instead of `focusRequest`: fails 1
+- Survived: `errors[field] ?? serverError` (client first) and removing the `useMemo`. See the judgements below.
+
+**Probe (scratch copy):**
+1. A 400 `{ lastName: ['Server last.'], nickname: ['Odd.'] }` arrives. The owner then pastes 51 characters into Phone and presses Save. The result: focus is on `contact-phone`, while Last name still has `aria-invalid="true"` and the description `Server last.`, and the alert `Odd.` is still shown.
+2. A 400 `{ a: ['Same.'], b: ['Same.'] }` renders both paragraphs, but React logs "Encountered two children with the same key".
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 29 | Blocking | test-writer, then implementer | web/src/features/contacts/ContactForm.tsx:83-95 (`handleSubmit`), 102-103 | **Stale server errors survive a client-blocked submit.** Server errors only clear when `mutate()` resets the mutation error, but a submit that client validation blocks never calls `mutate()`. After probe 1, Last name (above Phone) still shows a server error, yet focus goes to Phone. That breaks AC-036 ("a submit blocked by client-side or server-side field errors ... focus the first field, in form order, that shows an error"). The form-level alert from the last attempt also stays. The plan says "Submitting clears all server errors from the previous attempt", and AC-044 has the same intent. | **Test-writer:** add a page row with the probe 1 sequence (server error on Last name, then a client error on Phone, then Save). Expect Last name's server error and the alert to be gone and focus on Phone, or, if the owner prefers keeping them, focus on Last name. Recommended: clearing, which is consistent with the plan and AC-044. **Implementer:** on every submit, hide the previous attempt's server errors before client validation (for example `setDismissed(new Set(CONTACT_FORM_FIELDS))` plus a flag that hides `form`, both reset when a new `serverErrors` arrives). Then the client-first precedence question below becomes moot. |
+| 30 | Should-fix | implementer | web/src/features/contacts/ContactForm.tsx:141 | `key={message}`: two unknown keys with the same message (probe 2) give duplicate React keys and a React `console.error` warning. Both still render. | Key by index (`key={index}`), or by `${index}-${message}`. The list is static per attempt. |
+
+**Judgements requested:**
+- **Render-time reaction to new `serverErrors`.** It's sound. It's React's documented "adjust state when a prop changes" pattern: the guard compares identity, so it settles after one extra render. `setFocusRequest` is set during the same render pass that shows the server errors, so the effect focuses after that commit. The AC-036 "error present at focus time" test proves it, and the imperative-focus-during-render mutant fails 1. It relies on `serverErrors` being identity-stable between parent renders, which is the `useMemo` in `NewContactPage`. The no-memo mutant survives only because nothing re-renders the parent while an error is shown in today's tests. Without the memo, any parent re-render would reset `dismissed` and steal focus, so keep it. It's justified, not dead code. If spec 005's edit page re-renders its parent more often, add a test then.
+- **Server errors before client errors until the field is edited.** This matches the plan ("Editing a field also hides that field's server error ... its client rules then decide what shows"). The client-first mutant is equivalent today: after a mutate-path submit, `errors` is `{}`, and editing dismisses the server error. Only the stale case in Finding 29 can produce both on one field. Once 29 is fixed, the order stays unobservable.
+- **No T-14 leakage.** `unexpected` and non-`ApiError` values map to `{ fields: {}, form: [] }`. There's no `SAVE_FAILED_MESSAGE`. The unit file has no `unexpected` rows, as tasks.md says. One knock-on of the current design: an unexpected failure sets `hasFailedSubmit`, because `serverErrors` is non-null. That's consistent with the plan's "failed submit (client or server)".
+
+**Notes:**
+- **Minimality:** clean, apart from the comment on `toContactFormErrors` that points at T-14.
+- **The alert** reuses `FieldError.module.css`, which is fine.
+
+**Commit:** not yet. Finding 29 is Blocking.
+
+### T-13 re-review after fix cycle 1: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 282/282 (279 + test A, the duplicate-message test, and guard test B) · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 3/3 runs on its own (39/39).
+
+- **Finding 29: closed.** I re-ran probe 1 on a fresh scratch copy (`diff -r` identical to the working tree).
+  - After the client-blocked submit: focus is on `contact-phone`, Last name has no `aria-invalid` and no description, and there's no alert.
+  - Extension: clearing Phone and resubmitting brings back `Server last.` and the alert `Odd.`, and focuses Last name. So hiding is per-attempt, and a new `serverErrors` identity shows errors again.
+  - Following the plan ("Submitting clears all server errors") without asking the owner was correct.
+- **Finding 30: closed.** Messages are keyed by index. Reverting to `key={message}` fails 1, the new `console.error` spy test.
+- **Mutants on the fix (all killed):**
+  - `setServerHidden(true)` removed from submit: fails 1
+  - never un-hidden on new errors: fails 16
+  - alert ignores `serverHidden`: fails 1
+  - fields ignore `serverHidden`: fails 1
+  - hide only on a client-valid submit: fails 1
+- **Survivors from the first review:**
+  - **Client-first precedence** (242/242): still equivalent, as predicted. A client error only exists after a client-blocked submit, which now hides server errors, or after an edit, which dismisses that field's server error. A mutate-path submit resets `errors` to `{}`. So the two can never both be visible on one field.
+  - **No `useMemo`** (242/242): unchanged and accepted. It's load-bearing for any parent re-render; see the first review.
+- **Minimality:** still clean. There's no T-14 save-failed message.
+
+**Commit:** no open Blocking or Should-fix findings, so T-13 can be committed.

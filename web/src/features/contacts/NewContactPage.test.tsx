@@ -1,12 +1,13 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { App } from '../../App'
 import { deferred } from '../../test/deferred'
 import { aContact, contactsPage } from '../../test/msw/fixtures'
 import { recordRequests } from '../../test/msw/requests'
+import { conflictProblem, validationProblem } from '../../test/msw/problems'
 import { server } from '../../test/msw/server'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
@@ -385,4 +386,347 @@ describe('Contacts list: the confirmation state is read defensively', () => {
       expect(screen.queryByText(/created\./)).not.toBeInTheDocument()
     },
   )
+})
+
+const LAST_LONG = 'Must be 100 characters or fewer.'
+const INVALID_EMAIL = 'Must be a valid email address.'
+const DUPLICATE = 'A contact with this email already exists.'
+
+/** Fills every field with client-valid values, so only the server can object. */
+async function fillAllValid(user: Harness['user']) {
+  await fill(user, 'First name', 'Ada')
+  await fill(user, 'Last name', 'Lovelace')
+  await fill(user, 'Email', 'ada@example.com')
+  await fill(user, 'Phone', '555-0100')
+  await fill(user, 'Company', 'Analytical Engines')
+  await fill(user, 'Notes', 'First programmer.')
+}
+
+function expectAllValuesKept() {
+  expect(field('First name')).toHaveValue('Ada')
+  expect(field('Last name')).toHaveValue('Lovelace')
+  expect(field('Email')).toHaveValue('ada@example.com')
+  expect(field('Phone')).toHaveValue('555-0100')
+  expect(field('Company')).toHaveValue('Analytical Engines')
+  expect(field('Notes')).toHaveValue('First programmer.')
+}
+
+describe('Create contact page: server validation errors', () => {
+  it('shows each 400 message verbatim under its field and keeps everything typed [AC-040]', async () => {
+    server.use(
+      http.post('/api/contacts', () =>
+        validationProblem({ lastName: [LAST_LONG], email: [INVALID_EMAIL] }),
+      ),
+    )
+    const { user, requests, getLocation } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    expect(await screen.findByText(LAST_LONG)).toBeInTheDocument()
+    expect(field('Last name')).toHaveAccessibleDescription(LAST_LONG)
+    expect(field('Last name')).toHaveAttribute('aria-invalid', 'true')
+    expect(field('Email')).toHaveAccessibleDescription(INVALID_EMAIL)
+    expect(field('Email')).toHaveAttribute('aria-invalid', 'true')
+    for (const label of ['First name', 'Phone', 'Company', 'Notes'] as const) {
+      expect(field(label)).not.toHaveAttribute('aria-invalid', 'true')
+    }
+    expectAllValuesKept()
+    expect(screen.getByRole('heading', { level: 1, name: 'New contact' })).toBeInTheDocument()
+    expect(getLocation().pathname).toBe('/contacts/new')
+    expect(posts(requests)).toHaveLength(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('re-enables Save after a 400 so the owner can try again [AC-040]', async () => {
+    server.use(http.post('/api/contacts', () => validationProblem({ lastName: [LAST_LONG] })))
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    await screen.findByText(LAST_LONG)
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('shows a message for an unknown key in an alert and keeps the typed values [AC-041]', async () => {
+    server.use(
+      http.post('/api/contacts', () => validationProblem({ nickname: ['Something odd.'] })),
+    )
+    const { user, getLocation } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something odd.')
+    expectAllValuesKept()
+    expect(getLocation().pathname).toBe('/contacts/new')
+    for (const label of LABELS) {
+      expect(field(label)).not.toHaveAttribute('aria-invalid', 'true')
+    }
+  })
+
+  it('shows a known-key message under its field and an unknown-key message in an alert at once [AC-040, AC-041]', async () => {
+    server.use(
+      http.post('/api/contacts', () =>
+        validationProblem({
+          company: ['Must be 200 characters or fewer.'],
+          nickname: ['Something odd.'],
+        }),
+      ),
+    )
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something odd.')
+    expect(field('Company')).toHaveAccessibleDescription('Must be 200 characters or fewer.')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('200 characters')
+  })
+
+  it('replaces the old server errors when a resubmit is rejected differently [AC-040]', async () => {
+    let calls = 0
+    server.use(
+      http.post('/api/contacts', () => {
+        calls += 1
+        return calls === 1
+          ? validationProblem({ lastName: [LAST_LONG] })
+          : validationProblem({ company: ['Must be 200 characters or fewer.'] })
+      }),
+    )
+    const { user, requests } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    await screen.findByText(LAST_LONG)
+
+    await save(user)
+
+    expect(await screen.findByText('Must be 200 characters or fewer.')).toBeInTheDocument()
+    expect(screen.queryByText(LAST_LONG)).not.toBeInTheDocument()
+    expect(field('Last name')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(field('Company')).toHaveAttribute('aria-invalid', 'true')
+    expect(posts(requests)).toHaveLength(2)
+  })
+})
+
+describe('Create contact page: duplicate email', () => {
+  it('shows the duplicate message under Email, not the problem title, and keeps everything typed [AC-042]', async () => {
+    server.use(http.post('/api/contacts', () => conflictProblem('Conflict!')))
+    const { user, getLocation } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    expect(await screen.findByText(DUPLICATE)).toBeInTheDocument()
+    expect(field('Email')).toHaveAccessibleDescription(DUPLICATE)
+    expect(field('Email')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.queryByText(/Conflict!/)).not.toBeInTheDocument()
+    expectAllValuesKept()
+    expect(screen.getByRole('heading', { level: 1, name: 'New contact' })).toBeInTheDocument()
+    expect(getLocation().pathname).toBe('/contacts/new')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+})
+
+describe('Create contact page: focus after a server error', () => {
+  it('moves focus to Email after a 409 [AC-036]', async () => {
+    server.use(http.post('/api/contacts', () => conflictProblem()))
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    await screen.findByText(DUPLICATE)
+    await waitFor(() => {
+      expect(field('Email')).toHaveFocus()
+    })
+  })
+
+  it('moves focus to the first errored field, Last name, after a 400 on lastName and company [AC-036]', async () => {
+    server.use(
+      http.post('/api/contacts', () =>
+        validationProblem({ company: ['Must be 200 characters or fewer.'], lastName: [LAST_LONG] }),
+      ),
+    )
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    await screen.findByText(LAST_LONG)
+    await waitFor(() => {
+      expect(field('Last name')).toHaveFocus()
+    })
+  })
+
+  it('shows the server error on the field already when focus arrives [AC-036]', async () => {
+    server.use(http.post('/api/contacts', () => validationProblem({ lastName: [LAST_LONG] })))
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+    const lastName = field('Last name')
+    const atFocus: { invalid: string | null; description: string }[] = []
+    lastName.addEventListener('focus', () => {
+      const errorId = lastName.getAttribute('aria-describedby')
+      atFocus.push({
+        invalid: lastName.getAttribute('aria-invalid'),
+        description: (errorId && document.getElementById(errorId)?.textContent) || '',
+      })
+    })
+
+    await save(user)
+
+    await waitFor(() => {
+      expect(lastName).toHaveFocus()
+    })
+    expect(atFocus).toEqual([{ invalid: 'true', description: LAST_LONG }])
+  })
+})
+
+describe('Create contact page: editing away a server error', () => {
+  it('removes the duplicate message once Email is edited to another valid address, without a submit [AC-037]', async () => {
+    server.use(http.post('/api/contacts', () => conflictProblem()))
+    const { user, requests } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    await screen.findByText(DUPLICATE)
+
+    await user.clear(field('Email'))
+    await user.type(field('Email'), 'grace@example.com')
+
+    expect(screen.queryByText(DUPLICATE)).not.toBeInTheDocument()
+    expect(field('Email')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(field('Email')).toHaveAccessibleDescription('')
+    expect(posts(requests)).toHaveLength(1)
+  })
+
+  it('shows the client rule instead of the duplicate message when Email is edited to an invalid value [AC-037]', async () => {
+    server.use(http.post('/api/contacts', () => conflictProblem()))
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    await screen.findByText(DUPLICATE)
+
+    await user.type(field('Email'), '@')
+
+    expect(field('Email')).toHaveAccessibleDescription(INVALID_EMAIL)
+    expect(screen.queryByText(DUPLICATE)).not.toBeInTheDocument()
+  })
+
+  it('removes a server field error when that field is edited, and keeps the others [AC-037]', async () => {
+    server.use(
+      http.post('/api/contacts', () =>
+        validationProblem({ lastName: [LAST_LONG], company: ['Must be 200 characters or fewer.'] }),
+      ),
+    )
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    await screen.findByText(LAST_LONG)
+
+    await user.type(field('Last name'), 'x')
+
+    expect(screen.queryByText(LAST_LONG)).not.toBeInTheDocument()
+    expect(field('Last name')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(field('Company')).toHaveAccessibleDescription('Must be 200 characters or fewer.')
+  })
+
+  it('keeps a server error on a field the owner has not edited [AC-037]', async () => {
+    server.use(http.post('/api/contacts', () => conflictProblem()))
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+    await save(user)
+    await screen.findByText(DUPLICATE)
+
+    await user.type(field('Phone'), '1')
+
+    expect(field('Email')).toHaveAccessibleDescription(DUPLICATE)
+  })
+})
+
+describe('Create contact page: a client-blocked submit after a server error', () => {
+  /** First POST: 400 with a Last name error and an unknown-key error. Later POSTs: `later`. */
+  function serverThen(later: () => Response) {
+    let calls = 0
+    server.use(
+      http.post('/api/contacts', () => {
+        calls += 1
+        return calls === 1
+          ? validationProblem({ lastName: ['Server last.'], nickname: ['Odd.'] })
+          : later()
+      }),
+    )
+  }
+
+  async function reachClientBlockedSubmit(h: ReturnType<typeof renderCreatePage>) {
+    await fillAllValid(h.user)
+    await save(h.user)
+    await screen.findByText('Server last.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Odd.')
+    await fill(h.user, 'Phone', 'x'.repeat(51))
+    await save(h.user)
+  }
+
+  it('clears the previous attempt server errors and focuses the first field that shows an error [AC-036, AC-040]', async () => {
+    serverThen(() => validationProblem({ company: ['Server company.'] }))
+    const h = renderCreatePage()
+
+    await reachClientBlockedSubmit(h)
+
+    expect(await screen.findByText('Must be 50 characters or fewer.')).toBeInTheDocument()
+    expect(screen.queryByText('Server last.')).not.toBeInTheDocument()
+    expect(field('Last name')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(field('Last name')).toHaveAccessibleDescription('')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Odd.')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(field('Phone')).toHaveFocus()
+    })
+    expect(posts(h.requests)).toHaveLength(1)
+  })
+
+  it('shows the new server errors when the fixed form is submitted again and rejected [AC-036, AC-040]', async () => {
+    serverThen(() => validationProblem({ company: ['Server company.'], other: ['Fresh.'] }))
+    const h = renderCreatePage()
+    await reachClientBlockedSubmit(h)
+    await screen.findByText('Must be 50 characters or fewer.')
+
+    await h.user.clear(field('Phone'))
+    await h.user.type(field('Phone'), '555')
+    await save(h.user)
+
+    expect(await screen.findByText('Server company.')).toBeInTheDocument()
+    expect(field('Company')).toHaveAccessibleDescription('Server company.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Fresh.')
+    expect(screen.queryByText('Server last.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Odd.')).not.toBeInTheDocument()
+    expect(field('Last name')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(posts(h.requests)).toHaveLength(2)
+    await waitFor(() => {
+      expect(field('Company')).toHaveFocus()
+    })
+  })
+})
+
+describe('Create contact page: repeated unknown-key messages', () => {
+  it('renders every message in the alert, even identical ones, without logging to the console [AC-041]', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    onTestFinished(() => {
+      consoleError.mockRestore()
+    })
+    server.use(
+      http.post('/api/contacts', () =>
+        validationProblem({ nickname: ['Same message.'], alias: ['Same message.'] }),
+      ),
+    )
+    const { user } = renderCreatePage()
+    await fillAllValid(user)
+
+    await save(user)
+
+    const alert = await screen.findByRole('alert')
+    expect(within(alert).getAllByText('Same message.')).toHaveLength(2)
+    expect(consoleError).not.toHaveBeenCalled()
+  })
 })

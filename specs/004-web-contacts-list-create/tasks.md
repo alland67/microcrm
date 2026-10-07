@@ -209,7 +209,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/useContacts.ts` (`removeQueries` on success), `C/NewContactPage.tsx`, `C/ContactsPage.tsx` (reads `location.state`)
   - **Done when:** the ACs pass. The suite, lint, typecheck, and build are green.
 
-- [ ] T-13: Create: server validation and duplicate-email errors
+- [x] T-13: Create: server validation and duplicate-email errors — done 2026-10-07: toContactFormErrors, server field errors + form alert, 409 under Email, focus after render; review APPROVE after 1 fix cycle (stale server errors cleared on submit, index keys)
   - **ACs:** AC-040, AC-041, AC-042, AC-036 (server-side errors), AC-037 (server-side errors)
   - **Depends on:** T-12
   - **Tests (test-writer):**

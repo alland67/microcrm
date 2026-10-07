@@ -10,10 +10,13 @@ import {
   type ContactFormField,
   type ContactFormValues,
 } from './contactFormRules'
+import type { ContactFormServerErrors } from './contactFormErrors'
 import styles from './ContactForm.module.css'
 
 type ContactFormProps = {
   isSaving: boolean
+  /** From the latest attempt; null while pending or before any attempt. */
+  serverErrors: ContactFormServerErrors | null
   /** Only called when client validation passes. */
   onSubmit: (values: ContactFormValues) => void
   /** Cancel link target. */
@@ -38,7 +41,7 @@ const EMPTY_VALUES: ContactFormValues = {
   notes: '',
 }
 
-export function ContactForm({ isSaving, onSubmit, cancelTo }: ContactFormProps) {
+export function ContactForm({ isSaving, serverErrors, onSubmit, cancelTo }: ContactFormProps) {
   const [values, setValues] = useState<ContactFormValues>(EMPTY_VALUES)
   const [errors, setErrors] = useState<ContactFieldErrors>({})
   // Fields are only re-checked as they change once a submit has failed.
@@ -55,8 +58,26 @@ export function ContactForm({ isSaving, onSubmit, cancelTo }: ContactFormProps) 
     }
   }, [focusRequest])
 
+  // Server fields whose error the owner has since edited away. Reset when a new attempt's errors arrive;
+  // done during render (not an effect) so the errors never show with stale state.
+  const [dismissed, setDismissed] = useState<ReadonlySet<ContactFormField>>(new Set())
+  // Set on every submit: the previous attempt's server errors (fields and alert) are hidden until new ones arrive.
+  const [serverHidden, setServerHidden] = useState(false)
+  const [seenServerErrors, setSeenServerErrors] = useState(serverErrors)
+  if (seenServerErrors !== serverErrors) {
+    setSeenServerErrors(serverErrors)
+    setDismissed(new Set())
+    setServerHidden(false)
+    if (serverErrors) {
+      setHasFailedSubmit(true)
+      const first = CONTACT_FORM_FIELDS.find((field) => serverErrors.fields[field])
+      if (first) setFocusRequest({ field: first })
+    }
+  }
+
   function handleChange(field: ContactFormField, value: string) {
     setValues((current) => ({ ...current, [field]: value }))
+    setDismissed((current) => new Set(current).add(field))
     if (hasFailedSubmit) {
       setErrors((current) => ({ ...current, [field]: validateContactField(field, value) }))
     }
@@ -65,6 +86,7 @@ export function ContactForm({ isSaving, onSubmit, cancelTo }: ContactFormProps) 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (isSaving) return
+    setServerHidden(true)
     const found = validateContactForm(values)
     setErrors(found)
     const firstInvalid = CONTACT_FORM_FIELDS.find((field) => found[field])
@@ -81,7 +103,9 @@ export function ContactForm({ isSaving, onSubmit, cancelTo }: ContactFormProps) 
       {CONTACT_FORM_FIELDS.map((field) => {
         const id = `contact-${field}`
         const errorId = `${id}-error`
-        const error = errors[field]
+        const serverError =
+          serverHidden || dismissed.has(field) ? undefined : serverErrors?.fields[field]
+        const error = serverError ?? errors[field]
         const common = {
           id,
           ref: (element: HTMLElement | null) => {
@@ -116,6 +140,13 @@ export function ContactForm({ isSaving, onSubmit, cancelTo }: ContactFormProps) 
           </div>
         )
       })}
+      {!serverHidden && serverErrors && serverErrors.form.length > 0 && (
+        <div role="alert" className={fieldErrorStyles.fieldError}>
+          {serverErrors.form.map((message, index) => (
+            <p key={index}>{message}</p>
+          ))}
+        </div>
+      )}
       <div className={styles.actions}>
         <button type="submit" disabled={isSaving}>
           {isSaving ? 'Saving…' : 'Save'}
