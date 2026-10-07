@@ -176,7 +176,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/contactFormRules.ts`, `C/ContactForm.tsx` (+ `.module.css`), `C/NewContactPage.tsx`
   - **Done when:** the ACs pass. The form has `noValidate` and no `maxLength`/`required` attributes. `onSubmit` is not wired to the API yet. The suite, lint, typecheck, and build are green.
 
-- [ ] T-10: Create form: focus the first error; live revalidation after a failed submit
+- [x] T-10: Create form: focus the first error; live revalidation after a failed submit — done 2026-10-07: focus first error after render (callback refs + effect), live revalidation after a failed submit; review APPROVE, finding 27 fixed (error present when focus arrives)
   - **ACs:** AC-036 (client-side errors), AC-037 (client-side errors)
   - **Depends on:** T-09
   - **Tests (test-writer):** `C/NewContactPage.validation.test.tsx` (extended):

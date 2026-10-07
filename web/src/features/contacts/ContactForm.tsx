@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 import fieldErrorStyles from '../../components/FieldError.module.css'
 import {
   CONTACT_FORM_FIELDS,
+  validateContactField,
   validateContactForm,
   type ContactFieldErrors,
   type ContactFormField,
@@ -39,14 +40,38 @@ const EMPTY_VALUES: ContactFormValues = {
 export function ContactForm({ onSubmit, cancelTo }: ContactFormProps) {
   const [values, setValues] = useState<ContactFormValues>(EMPTY_VALUES)
   const [errors, setErrors] = useState<ContactFieldErrors>({})
+  // Fields are only re-checked as they change once a submit has failed.
+  const [hasFailedSubmit, setHasFailedSubmit] = useState(false)
+
+  // A new object per blocked submit, so a repeat submit focuses again. The effect runs after
+  // the render that shows the errors, so the field is already invalid when focus arrives.
+  const [focusRequest, setFocusRequest] = useState<{ field: ContactFormField } | null>(null)
+  const fieldRefs = useRef<Partial<Record<ContactFormField, HTMLElement | null>>>({})
+
+  useEffect(() => {
+    if (focusRequest) {
+      fieldRefs.current[focusRequest.field]?.focus()
+    }
+  }, [focusRequest])
+
+  function handleChange(field: ContactFormField, value: string) {
+    setValues((current) => ({ ...current, [field]: value }))
+    if (hasFailedSubmit) {
+      setErrors((current) => ({ ...current, [field]: validateContactField(field, value) }))
+    }
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
     const found = validateContactForm(values)
     setErrors(found)
-    if (Object.keys(found).length === 0) {
-      onSubmit(values)
+    const firstInvalid = CONTACT_FORM_FIELDS.find((field) => found[field])
+    if (firstInvalid) {
+      setHasFailedSubmit(true)
+      setFocusRequest({ field: firstInvalid })
+      return
     }
+    onSubmit(values)
   }
 
   return (
@@ -57,9 +82,11 @@ export function ContactForm({ onSubmit, cancelTo }: ContactFormProps) {
         const error = errors[field]
         const common = {
           id,
+          ref: (element: HTMLElement | null) => {
+            fieldRefs.current[field] = element
+          },
           value: values[field],
-          onChange: (e: { target: { value: string } }) =>
-            setValues((current) => ({ ...current, [field]: e.target.value })),
+          onChange: (e: { target: { value: string } }) => handleChange(field, e.target.value),
           'aria-required': field === 'firstName' ? true : undefined,
           'aria-invalid': error ? true : undefined,
           'aria-describedby': error ? errorId : undefined,

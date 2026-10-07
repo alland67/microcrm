@@ -596,3 +596,40 @@ Survivors:
 - **Carry to T-11:** "always call `onSubmit`" still survives (83/83), as expected while `onSubmit` is a no-op. It must die once the form POSTs.
 
 **Commit:** T-09 can be committed.
+
+## T-10: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 231/231 · lint pass · typecheck pass · `prettier --check` on the 2 changed files: clean · the validation file passed 3/3 runs on its own (36/36).
+
+**AC coverage** (`NewContactPage.validation.test.tsx`):
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-036 (client) | `moves focus to Email when only Email and Company have errors`; `moves focus to First name when First name and Notes have errors`; `skips an earlier valid field ...`; `moves focus again on a second failed submit` | yes |
+| AC-037 (client) | `removes the First name error and aria-invalid when typing A`; `keeps the error while the edited value is still invalid` (guard); `removes an Email error once the email becomes valid`; `shows an error live on a field that was valid at submit ...`; `shows a length error live ...`; two "not before any submit" guards | yes |
+
+**Mutation (scratch copy, 7 mutants):** all 7 were killed.
+- no focus: fails 4
+- focus the last invalid field: fails 3
+- always focus First name: fails 3
+- live re-check without the `hasFailedSubmit` gate: fails 2 (killed by the guards)
+- flag never set: fails 5
+- live re-check that only clears errors: fails 3
+- re-checking the stale value: fails 5
+
+Re-checking the whole form on each change is equivalent, because every field was validated at submit and the others haven't changed. I didn't raise it.
+
+**Probe (focus timing):** a focus listener on First name, then Save on an empty form. At the moment focus lands, `aria-invalid` is null, `aria-describedby` is null, and `contact-firstName-error` isn't in the DOM. After the commit, both attributes are set. The cause is that `focus()` runs inside the submit handler, before React commits `setErrors`.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 27 | Should-fix | test-writer, then implementer | web/src/features/contacts/ContactForm.tsx:60 | **Focus lands before the error is rendered** (probe above). On the first failed submit, the focused field has no `aria-invalid` and no description yet. Whether a screen reader's focus announcement includes "invalid, Required." then depends on its timing, which is weaker than AC-035's "the error is part of the field's accessible description". Separately, `getElementById` rebuilds the id string `contact-${field}` (lines 60 and 69, two places to keep in sync) and searches the whole document. The conventions say nothing about refs. The plan already requires an effect for server-error focus at T-13 ("in an effect once the error arrives"), so T-13 will need a post-commit mechanism anyway. | **Test-writer:** add an AC-036 row that records `aria-invalid` and the accessible description inside a `focus` listener on the target field, and expects them to be set. It fails today. **Implementer:** keep a `Record<ContactFormField, HTMLElement \| null>` of refs (a callback ref per field), and focus in a `useEffect` keyed on a submit-attempt counter (state incremented on each blocked submit, so a repeat submit with the same errors refocuses). T-13 can reuse the same effect for server errors. Can be done now or at T-13; if it's deferred, carry it to T-13 explicitly. |
+
+**Notes:**
+- **On `getElementById` vs refs:** it's correct today, because the ids are unique and there's only one form per page. It isn't a convention violation on its own. The problems are the commit timing and the duplicated id string (Finding 27). The fix for the timing problem uses refs anyway.
+- **Minimality:** clean. Only the flag, `handleChange` and focus were added. Server-error clearing and the T-11 POST wiring weren't started.
+- **`hasFailedSubmit` stays `true`** for the life of the form. That matches the plan ("after the first failed submit").
+- `setErrors` keeps `[field]: undefined` keys. Every read is a truthiness check, so this is harmless. T-13 may want `Object.values(...).some(Boolean)` if it counts errors.
+- **Carry to T-11:** the "always call `onSubmit`" mutant must now die.
+
+**Commit:** no Blocking findings, so T-10 can be committed. Finding 27 can be fixed in this task or carried to T-13, which needs an effect for server-error focus anyway.

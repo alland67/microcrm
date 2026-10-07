@@ -312,3 +312,170 @@ describe('Create contact page: Cancel', () => {
     expect(screen.queryByText(/characters or fewer\./)).not.toBeInTheDocument()
   })
 })
+
+describe('Create contact page: focus the first error', () => {
+  it('moves focus to Email when only Email and Company have errors [AC-036]', async () => {
+    const { user } = renderCreatePage()
+    await fill(user, 'First name', 'Ada')
+    await fill(user, 'Email', 'x@')
+    await fill(user, 'Company', 'x'.repeat(201))
+
+    await save(user)
+
+    await screen.findByText(INVALID_EMAIL)
+    expect(screen.getByText(tooLong(200))).toBeInTheDocument()
+    await waitFor(() => {
+      expect(field('Email')).toHaveFocus()
+    })
+  })
+
+  it('moves focus to First name when First name and Notes have errors [AC-036]', async () => {
+    const { user } = renderCreatePage()
+    await fill(user, 'Notes', 'x'.repeat(4001))
+
+    await save(user)
+
+    await screen.findByText(REQUIRED)
+    expect(screen.getByText(tooLong(4000))).toBeInTheDocument()
+    await waitFor(() => {
+      expect(field('First name')).toHaveFocus()
+    })
+  })
+
+  it('skips an earlier valid field and focuses the first errored one in form order [AC-036]', async () => {
+    const { user } = renderCreatePage()
+    await fill(user, 'First name', 'Ada')
+    await fill(user, 'Last name', 'Lovelace')
+    await fill(user, 'Phone', 'x'.repeat(51))
+
+    await save(user)
+
+    await screen.findByText(tooLong(50))
+    await waitFor(() => {
+      expect(field('Phone')).toHaveFocus()
+    })
+  })
+
+  it('shows the error on the field already when focus arrives, so a screen reader announces it [AC-036]', async () => {
+    const { user } = renderCreatePage()
+    const firstName = field('First name')
+    const atFocus: { invalid: string | null; description: string }[] = []
+    firstName.addEventListener('focus', () => {
+      const errorId = firstName.getAttribute('aria-describedby')
+      atFocus.push({
+        invalid: firstName.getAttribute('aria-invalid'),
+        description: (errorId && document.getElementById(errorId)?.textContent) || '',
+      })
+    })
+
+    await save(user)
+
+    await waitFor(() => {
+      expect(firstName).toHaveFocus()
+    })
+    expect(atFocus).toEqual([{ invalid: 'true', description: REQUIRED }])
+  })
+
+  it('moves focus again on a second failed submit [AC-036]', async () => {
+    const { user } = renderCreatePage()
+    await fill(user, 'Email', 'x@')
+    await save(user)
+    await waitFor(() => {
+      expect(field('First name')).toHaveFocus()
+    })
+
+    await user.type(field('First name'), 'A')
+    expect(screen.queryByText(REQUIRED)).not.toBeInTheDocument()
+    await save(user)
+
+    await waitFor(() => {
+      expect(field('Email')).toHaveFocus()
+    })
+  })
+})
+
+describe('Create contact page: live re-checking after a failed submit', () => {
+  it('removes the First name error and aria-invalid when typing A, without another submit [AC-037]', async () => {
+    const { user, requests } = renderCreatePage()
+    await save(user)
+    await screen.findByText(REQUIRED)
+
+    await user.type(field('First name'), 'A')
+
+    expect(screen.queryByText(REQUIRED)).not.toBeInTheDocument()
+    expect(field('First name')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(field('First name')).toHaveAccessibleDescription('')
+    expect(posts(requests)).toHaveLength(0)
+  })
+
+  it('keeps the error while the edited value is still invalid [AC-037]', async () => {
+    const { user } = renderCreatePage()
+    await fill(user, 'First name', 'Ada')
+    await fill(user, 'Email', 'x@')
+    await save(user)
+    await screen.findByText(INVALID_EMAIL)
+
+    await user.type(field('Email'), 'y@')
+
+    expect(field('Email')).toHaveAccessibleDescription(INVALID_EMAIL)
+    expect(field('Email')).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('removes an Email error once the email becomes valid [AC-037]', async () => {
+    const { user } = renderCreatePage()
+    await fill(user, 'Email', 'x@')
+    await save(user)
+    await screen.findByText(INVALID_EMAIL)
+
+    await user.type(field('Email'), 'b')
+
+    expect(screen.queryByText(INVALID_EMAIL)).not.toBeInTheDocument()
+    expect(field('Email')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText(REQUIRED)).toBeInTheDocument()
+  })
+
+  it('shows an error live on a field that was valid at submit and becomes invalid [AC-037]', async () => {
+    const { user, requests } = renderCreatePage()
+    await fill(user, 'Email', 'a@b')
+    await save(user)
+    await screen.findByText(REQUIRED)
+    expect(field('Email')).not.toHaveAttribute('aria-invalid', 'true')
+
+    await user.clear(field('Email'))
+    await user.type(field('Email'), 'x@')
+
+    expect(field('Email')).toHaveAccessibleDescription(INVALID_EMAIL)
+    expect(field('Email')).toHaveAttribute('aria-invalid', 'true')
+    expect(posts(requests)).toHaveLength(0)
+  })
+
+  it('shows a length error live on a field that was valid at submit [AC-037]', async () => {
+    const { user } = renderCreatePage()
+    await save(user)
+    await screen.findByText(REQUIRED)
+
+    await fill(user, 'Phone', 'x'.repeat(51))
+
+    expect(field('Phone')).toHaveAccessibleDescription(tooLong(50))
+  })
+
+  it('does not check a field before any submit: typing x@ shows no error [AC-037]', async () => {
+    const { user } = renderCreatePage()
+
+    await user.type(field('Email'), 'x@')
+
+    expect(screen.queryByText(INVALID_EMAIL)).not.toBeInTheDocument()
+    expect(field('Email')).not.toHaveAttribute('aria-invalid', 'true')
+    expect(field('Email')).toHaveAccessibleDescription('')
+  })
+
+  it('does not check a blank First name before any submit, even after typing and clearing [AC-037]', async () => {
+    const { user } = renderCreatePage()
+
+    await user.type(field('First name'), 'A')
+    await user.clear(field('First name'))
+
+    expect(screen.queryByText(REQUIRED)).not.toBeInTheDocument()
+    expect(field('First name')).not.toHaveAttribute('aria-invalid', 'true')
+  })
+})
