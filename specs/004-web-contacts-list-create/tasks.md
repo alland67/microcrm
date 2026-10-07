@@ -187,7 +187,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/ContactForm.tsx`
   - **Done when:** the ACs pass. The suite, lint, typecheck, and build are green.
 
-- [ ] T-11: Create form: send a valid form; saving state
+- [x] T-11: Create form: send a valid form; saving state — done 2026-10-07: toCreateContactRequest, useCreateContact, one POST per save, Saving… disabled + submit guard; review APPROVE (nit 28 deferred: blank firstName row in toCreateContactRequest)
   - **ACs:** AC-034, AC-038, AC-039
   - **Depends on:** T-10
   - **Tests (test-writer):**

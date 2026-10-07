@@ -13,6 +13,7 @@ import {
 import styles from './ContactForm.module.css'
 
 type ContactFormProps = {
+  isSaving: boolean
   /** Only called when client validation passes. */
   onSubmit: (values: ContactFormValues) => void
   /** Cancel link target. */
@@ -37,7 +38,7 @@ const EMPTY_VALUES: ContactFormValues = {
   notes: '',
 }
 
-export function ContactForm({ onSubmit, cancelTo }: ContactFormProps) {
+export function ContactForm({ isSaving, onSubmit, cancelTo }: ContactFormProps) {
   const [values, setValues] = useState<ContactFormValues>(EMPTY_VALUES)
   const [errors, setErrors] = useState<ContactFieldErrors>({})
   // Fields are only re-checked as they change once a submit has failed.
@@ -63,6 +64,7 @@ export function ContactForm({ onSubmit, cancelTo }: ContactFormProps) {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (isSaving) return
     const found = validateContactForm(values)
     setErrors(found)
     const firstInvalid = CONTACT_FORM_FIELDS.find((field) => found[field])
@@ -115,7 +117,9 @@ export function ContactForm({ onSubmit, cancelTo }: ContactFormProps) {
         )
       })}
       <div className={styles.actions}>
-        <button type="submit">Save</button>
+        <button type="submit" disabled={isSaving}>
+          {isSaving ? 'Saving…' : 'Save'}
+        </button>
         <Link to={cancelTo}>Cancel</Link>
       </div>
     </form>

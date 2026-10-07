@@ -1,11 +1,18 @@
 import { ContactForm } from './ContactForm'
+import { toCreateContactRequest } from './contactFormRules'
+import { useCreateContact } from './useContacts'
 
 export function NewContactPage() {
+  const createContact = useCreateContact()
+
   return (
     <>
       <h1>New contact</h1>
-      {/* Submitting to the API is wired in T-11. */}
-      <ContactForm onSubmit={() => {}} cancelTo="/contacts" />
+      <ContactForm
+        isSaving={createContact.isPending}
+        onSubmit={(values) => createContact.mutate(toCreateContactRequest(values))}
+        cancelTo="/contacts"
+      />
     </>
   )
 }

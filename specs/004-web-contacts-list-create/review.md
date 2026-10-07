@@ -633,3 +633,48 @@ Re-checking the whole form on each change is equivalent, because every field was
 - **Carry to T-11:** the "always call `onSubmit`" mutant must now die.
 
 **Commit:** no Blocking findings, so T-10 can be committed. Finding 27 can be fixed in this task or carried to T-13, which needs an effect for server-error focus anyway.
+
+## T-11: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 245/245 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 4/4 runs on its own · no `console.`, no `fetch(` outside `api/client.ts`.
+
+**T-10 Finding 27:** closed before commit bb0e425. Focus now goes through callback refs in a `useEffect` keyed on a fresh `focusRequest` object, and there's no `getElementById`.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-034 | `NewContactPage.test.tsx`: only First name gives one POST with five `null`s and no error text; every field at exact max gives one POST with the exact body and no error. Rules: the T-09 at-max rows and `leaves values at their maximum lengths unchanged` | yes |
+| AC-038 | `sends one POST with the trimmed values of all six fields` (exact body, path, still 1 after settling); the 2 "sends nothing when invalid" guards; `toCreateContactRequest` unit tests (trim, blank→null, inner whitespace) | yes (see Nit 28) |
+| AC-039 | `shows a disabled Saving… button ...`; second click/double-click gives no 2nd POST; Enter in First name gives no 2nd POST; `ignores a form submit event that reaches the handler while saving` | yes |
+
+**Carry-forwards confirmed (scratch copy, whole `features/contacts` folder):**
+- **always-call-`onSubmit`:** now fails 17.
+- **`isSaving` mutants:**
+  - guard removed: fails 1, only the `fireEvent.submit` test;
+  - `disabled` removed: fails 1;
+  - `Saving…` label removed: fails 4;
+  - guard and `disabled` both removed: fails 4;
+  - the page passing `isSaving={false}`: fails 4.
+- **`fireEvent.submit` is the right tool for the guard.** Implicit submission (Enter) and clicks both stop at a disabled submit button, in browsers as well as jsdom. So the handler guard the plan prescribes ("ignored in the handler, as well as by disabling") can only be reached by dispatching submit directly. The form has no accessible name, so `container.querySelector('form')` is acceptable under the "no accessible alternative" clause.
+
+**Other mutants:**
+- Killed:
+  - firstName not trimmed: fails 3
+  - blank optional fields sent as `''`: fails 2
+  - optional fields not trimmed: fails 3
+  - raw form values sent: fails 2
+  - `mutate` called twice: fails 7
+  - wrong path `/api/contacts/`: fails 1
+- Survived: firstName blank sent as `null` (Nit 28).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 28 | Nit | test-writer | web/src/features/contacts/contactFormRules.test.ts (`keeps inner whitespace and never turns firstName into null`) | The test name claims "never null", but it only uses a non-blank first name, so a `firstName.trim() \|\| null` mutant passes. It can't happen through the page, because validation blocks a blank first name, so this is about the unit contract only (plan: "`firstName` is the trimmed string"). | Add `expect(toCreateContactRequest(blankForm({ firstName: '   ' })).firstName).toBe('')`, or rename the test. |
+
+**Notes:**
+- **Minimality:** clean. `useCreateContact` matches the plan signature and has no `onSuccess`/`removeQueries` (T-12, AC-046). There's no navigation after success (T-12), no server-error display (T-13), and no form-level message (T-14).
+- **`settle()`** is a fixed 30 ms wait used only before "no extra POST" assertions. It's acceptable for negative checks, and it was stable over 4 runs.
+- **After a successful save,** the form stays filled and Save comes back, because the T-12 navigation isn't there yet. That's expected at this stage.
+
+**Commit:** no Blocking findings, so T-11 can be committed.

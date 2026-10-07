@@ -3,6 +3,7 @@ import {
   CONTACT_FIELD_MAX,
   CONTACT_FORM_FIELDS,
   isValidEmail,
+  toCreateContactRequest,
   validateContactField,
   validateContactForm,
   type ContactFormField,
@@ -216,4 +217,57 @@ describe('isValidEmail', () => {
       expect(isValidEmail(email)).toBe(false)
     },
   )
+})
+
+describe('toCreateContactRequest', () => {
+  it('trims every field [AC-038]', () => {
+    const request = toCreateContactRequest({
+      firstName: '  Ada ',
+      lastName: ' Lovelace  ',
+      email: '  ada@example.com ',
+      phone: ' 555-0100 ',
+      company: '  Analytical Engines ',
+      notes: '  First programmer.\n ',
+    })
+
+    expect(request).toEqual({
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      email: 'ada@example.com',
+      phone: '555-0100',
+      company: 'Analytical Engines',
+      notes: 'First programmer.',
+    })
+  })
+
+  it('maps blank optional fields to null, including whitespace-only ones [AC-038]', () => {
+    const request = toCreateContactRequest(
+      blankForm({ lastName: '', email: '   ', phone: ' \t', notes: '\n' }),
+    )
+
+    expect(request).toEqual({
+      firstName: 'Ada',
+      lastName: null,
+      email: null,
+      phone: null,
+      company: null,
+      notes: null,
+    })
+  })
+
+  it('keeps inner whitespace and never turns firstName into null [AC-038]', () => {
+    const request = toCreateContactRequest(blankForm({ firstName: ' Mary  Ann ', notes: 'a  b' }))
+
+    expect(request.firstName).toBe('Mary  Ann')
+    expect(request.notes).toBe('a  b')
+  })
+
+  it('leaves values at their maximum lengths unchanged [AC-034]', () => {
+    const request = toCreateContactRequest(
+      blankForm({ firstName: 'x'.repeat(100), notes: 'n'.repeat(4000) }),
+    )
+
+    expect(request.firstName).toHaveLength(100)
+    expect(request.notes).toHaveLength(4000)
+  })
 })

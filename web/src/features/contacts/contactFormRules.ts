@@ -1,3 +1,4 @@
+import type { CreateContactRequest } from '../../api/types'
 import { INVALID_EMAIL, REQUIRED, maxLengthMessage } from '../../lib/validationMessages'
 
 export type ContactFormField = 'firstName' | 'lastName' | 'email' | 'phone' | 'company' | 'notes'
@@ -55,4 +56,17 @@ export function validateContactForm(values: ContactFormValues): ContactFieldErro
     }
   }
   return errors
+}
+
+/** Trimmed values, with blank optional fields as null (mirrors the API's normalization). */
+export function toCreateContactRequest(values: ContactFormValues): CreateContactRequest {
+  const optional = (field: ContactFormField) => values[field].trim() || null
+  return {
+    firstName: values.firstName.trim(),
+    lastName: optional('lastName'),
+    email: optional('email'),
+    phone: optional('phone'),
+    company: optional('company'),
+    notes: optional('notes'),
+  }
 }
