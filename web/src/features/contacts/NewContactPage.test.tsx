@@ -1,8 +1,11 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useEffect } from 'react'
+import { useNavigate } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { App } from '../../App'
 import { deferred } from '../../test/deferred'
+import { aContact, contactsPage } from '../../test/msw/fixtures'
 import { recordRequests } from '../../test/msw/requests'
 import { server } from '../../test/msw/server'
 import { renderWithProviders } from '../../test/renderWithProviders'
@@ -237,4 +240,149 @@ describe('Create contact page: saving state', () => {
     await settle()
     expect(posts(requests)).toHaveLength(1)
   })
+})
+
+function renderAt(route: string, ui = <App />) {
+  const requests = recordRequests()
+  const view = renderWithProviders(ui, { route })
+  return { ...view, requests }
+}
+
+function listGets(requests: Harness['requests']) {
+  return requests.filter((r) => r.method === 'GET' && r.url.pathname === '/api/contacts')
+}
+
+/** The confirmation text, which must sit inside an element with role `status`. */
+async function findConfirmation(text: string) {
+  const element = await screen.findByText(text)
+  expect(element.closest('[role="status"]')).not.toBeNull()
+}
+
+async function openNewAndSave(user: Harness['user'], firstName: string, lastName?: string) {
+  await user.click(await screen.findByRole('link', { name: 'New contact' }))
+  await fill(user, 'First name', firstName)
+  if (lastName) await fill(user, 'Last name', lastName)
+  await save(user)
+}
+
+describe('Create contact page: success goes back to the list', () => {
+  it('returns to /contacts with no search or page and confirms the new contact by full name [AC-045]', async () => {
+    const { user, getLocation } = renderAt('/contacts?search=zed&page=2')
+
+    await openNewAndSave(user, 'Ada', 'Lovelace')
+
+    await findConfirmation('Contact "Ada Lovelace" created.')
+    expect(getLocation().pathname).toBe('/contacts')
+    expect(getLocation().search).toBe('')
+    expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeInTheDocument()
+  })
+
+  it('names a first-name-only contact by first name alone [AC-045]', async () => {
+    const { user } = renderAt('/contacts')
+
+    await openNewAndSave(user, 'Cher')
+
+    await findConfirmation('Contact "Cher" created.')
+  })
+
+  it('shows no confirmation on the list before any create [AC-045]', async () => {
+    renderAt('/contacts')
+
+    await screen.findByRole('heading', { level: 1, name: 'Contacts' })
+    expect(screen.queryByText(/created\./)).not.toBeInTheDocument()
+  })
+
+  it('stays on the create page and shows no confirmation while the POST is held [AC-045]', async () => {
+    const { release } = holdCreate()
+    const { user, getLocation } = renderAt('/contacts')
+
+    await openNewAndSave(user, 'Ada', 'Lovelace')
+    await screen.findByRole('button', { name: 'Saving…' })
+
+    expect(getLocation().pathname).toBe('/contacts/new')
+    expect(screen.queryByText(/created\./)).not.toBeInTheDocument()
+    release()
+    expect(await screen.findByText('Contact "Ada Lovelace" created.')).toBeInTheDocument()
+  })
+})
+
+describe('Create contact page: the list is fetched again after a create', () => {
+  it('shows the loading state, not a stale table, while the second GET is held, then the new row [AC-046]', async () => {
+    const second = deferred()
+    let calls = 0
+    const babbage = aContact({ firstName: 'Charles', lastName: 'Babbage' })
+    const lovelace = aContact({ firstName: 'Ada', lastName: 'Lovelace' })
+    server.use(
+      http.get('/api/contacts', async () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json(contactsPage([babbage]))
+        await second.promise
+        return HttpResponse.json(contactsPage([babbage, lovelace]))
+      }),
+    )
+    const { user, requests } = renderAt('/contacts')
+    expect(await screen.findByText(/Babbage/)).toBeInTheDocument()
+
+    await openNewAndSave(user, 'Ada', 'Lovelace')
+
+    expect(await screen.findByText('Contact "Ada Lovelace" created.')).toBeInTheDocument()
+    expect(await screen.findByText('Loading contacts…')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Babbage/)).not.toBeInTheDocument()
+
+    second.resolve()
+
+    expect(await screen.findByText(/Lovelace/, { selector: 'td' })).toBeInTheDocument()
+    expect(screen.getByText(/Babbage/)).toBeInTheDocument()
+    expect(listGets(requests)).toHaveLength(2)
+  })
+})
+
+/** Navigates to /contacts carrying arbitrary history state, which `route` cannot express. */
+function GoToListWithState({ state }: { state: unknown }) {
+  const navigate = useNavigate()
+  useEffect(() => {
+    navigate('/contacts', { state, replace: true })
+  }, [navigate, state])
+  return null
+}
+
+describe('Contacts list: the confirmation state is read defensively', () => {
+  it('shows the confirmation for well-formed state (proves the harness) [AC-045]', async () => {
+    renderAt(
+      '/contacts',
+      <>
+        <GoToListWithState state={{ createdContactName: 'Ada Lovelace' }} />
+        <App />
+      </>,
+    )
+
+    expect(await screen.findByText('Contact "Ada Lovelace" created.')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['a string', 'Contact created'],
+    ['a number', 42],
+    ['null', null],
+    ['an empty object', {}],
+    ['an array', ['Ada']],
+    ['a non-string name', { createdContactName: 5 }],
+    ['a null name', { createdContactName: null }],
+    ['an object name', { createdContactName: { first: 'Ada' } }],
+  ])(
+    'shows no confirmation and still renders the list for %s as state [AC-045]',
+    async (_label, state) => {
+      renderAt(
+        '/contacts',
+        <>
+          <GoToListWithState state={state} />
+          <App />
+        </>,
+      )
+
+      expect(await screen.findByText('No contacts yet.', { exact: false })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1, name: 'Contacts' })).toBeInTheDocument()
+      expect(screen.queryByText(/created\./)).not.toBeInTheDocument()
+    },
+  )
 })

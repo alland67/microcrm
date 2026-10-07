@@ -678,3 +678,43 @@ Re-checking the whole form on each change is equivalent, because every field was
 - **After a successful save,** the form stays filled and Save comes back, because the T-12 navigation isn't there yet. That's expected at this stage.
 
 **Commit:** no Blocking findings, so T-11 can be committed.
+
+## T-12: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 259/259 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 4/4 runs on its own (23/23) · no `console.`.
+
+**AC coverage** (`NewContactPage.test.tsx`):
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-045 | `returns to /contacts with no search or page ...` (starts from `?search=zed&page=2`, and `findConfirmation` checks `role="status"`); `names a first-name-only contact by first name alone`; `shows no confirmation ... before any create`; `stays on the create page ... while the POST is held`; the well-formed-state harness proof plus 8 malformed-state rows | yes |
+| AC-046 | `shows the loading state, not a stale table, while the second GET is held, then the new row` (no table and no Babbage while held; then both rows; exactly 2 GETs) | yes |
+
+**Carry-forwards confirmed (scratch copy, `features/contacts`):**
+- `invalidateQueries` instead of `removeQueries`: fails 1.
+- Wrong key `['contact']`: fails 1. This closes the query-key prefix check carried from T-03.
+- `onSuccess` removed: fails 1.
+- Unguarded cast (`(state as …)?.createdContactName ?? null`): fails 2.
+- Guard without the `typeof name === 'string'` check: fails 2.
+
+**Other mutants:** all killed except one.
+- Killed:
+  - `navigate(-1)`: fails 4
+  - navigating to `/contacts?page=2`: fails 1
+  - first name only in the message: fails 3
+  - no `role="status"`: fails 2
+  - confirmation only shown once data exists: fails 1
+- Survived: `navigate(..., { replace: true })`. No AC says push or replace, so I note it rather than raise a finding.
+
+**Judgements requested:**
+- **Confirmation kept in history state.** Accepted. Plan risk note 325 accepts that it reappears on reload or Back, and search or paging pushes entries without the state, so it goes away as the owner moves on. It isn't a finding.
+- **Test-local `GoToListWithState` instead of extending `renderWithProviders`.** Accepted. Arbitrary `unknown` state is only needed here, so keeping it local avoids widening the shared helper's API. The well-formed row proves the helper actually delivers state, so the 8 malformed rows aren't vacuous: the unguarded and no-string-check mutants are killed by them. If spec 005 needs routed state too, move it to `web/src/test/`.
+
+**Findings:** none.
+
+**Notes:**
+- **Order of effects.** The hook-level `onSuccess` (`removeQueries`) runs before the `mutate`-level `onSuccess` (`navigate`), and it's synchronous. So the list mounts with no cache entry, as the plan intends. The AC-046 test proves this.
+- **`findConfirmation` uses `closest('[role="status"]')`.** That's because `Loading contacts…` is also a `status`, so `getByRole('status', { name })` would be ambiguous: a status region gets no accessible name from its content. This is acceptable.
+- **Accessibility follow-up (not a finding):** the `status` element is inserted already filled in, as part of a route change. Some screen readers don't announce a live region that appears with its content. The AC only requires role `status`. If spec 005 adds more one-off notices, consider a persistent live region in `AppLayout`.
+- **Minimality:** clean. There's no server-error display (T-13) and no form-level message (T-14).
+
+**Commit:** no Blocking findings, so T-12 can be committed.

@@ -200,7 +200,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   - **Likely source files:** `C/useContacts.ts` (`useCreateContact`), `C/NewContactPage.tsx`, `C/ContactForm.tsx`, `C/contactFormRules.ts`
   - **Done when:** the ACs pass. The suite, lint, typecheck, and build are green.
 
-- [ ] T-12: Create success: back to the list with a confirmation and a fresh list
+- [x] T-12: Create success: back to the list with a confirmation and a fresh list — done 2026-10-07: removeQueries on success, navigate to /contacts with createdContactName state, type-guarded role=status confirmation; review APPROVE, no findings
   - **ACs:** AC-045, AC-046
   - **Depends on:** T-11, T-04
   - **Tests (test-writer):** `C/NewContactPage.test.tsx` (extended):

@@ -1,5 +1,5 @@
 import { Pagination } from '../../components/Pagination'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useLocation, useSearchParams } from 'react-router'
 import { ContactSearchForm } from './ContactSearchForm'
 import { maxLengthMessage } from '../../lib/validationMessages'
 import { MAX_SEARCH_LENGTH, readListParams, toSearchParams } from './listParams'
@@ -7,7 +7,17 @@ import { ContactsTable } from './ContactsTable'
 import { CONTACTS_PAGE_SIZE, useContactsList } from './useContacts'
 import styles from './ContactsPage.module.css'
 
+/** `location.state` is `unknown`; only a string `createdContactName` counts. */
+function readCreatedContactName(state: unknown): string | null {
+  if (typeof state === 'object' && state !== null && 'createdContactName' in state) {
+    const name = state.createdContactName
+    return typeof name === 'string' ? name : null
+  }
+  return null
+}
+
 export function ContactsPage() {
+  const createdContactName = readCreatedContactName(useLocation().state)
   const [searchParams, setSearchParams] = useSearchParams()
   const { params, searchTooLong } = readListParams(searchParams)
   const { data, isFetching, isError, refetch } = useContactsList(params, {
@@ -26,6 +36,11 @@ export function ContactsPage() {
     <>
       <h1>Contacts</h1>
       <Link to="/contacts/new">New contact</Link>
+      {createdContactName !== null && (
+        <p role="status" className={styles.message}>
+          Contact "{createdContactName}" created.
+        </p>
+      )}
       <ContactSearchForm
         initialTerm={params.search ?? ''}
         initialError={searchTooLong ? maxLengthMessage(MAX_SEARCH_LENGTH) : null}
