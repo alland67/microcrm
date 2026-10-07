@@ -256,7 +256,7 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
   6. Reload a `/contacts?search=…&page=…` address and use Back.
 
 ## Traceability
-| AC / NFR | Task(s) | Test file(s) (test names filled in during build) |
+| AC / NFR | Task(s) | Test file(s) (find tests by their `[AC-nnn]` title tag) |
 |---|---|---|
 | AC-001 | T-02 | `App.test.tsx` |
 | AC-002 | T-02 | `App.test.tsx` |
@@ -280,18 +280,18 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
 | AC-020 | T-05 | `C/ContactsPage.search.test.tsx` |
 | AC-049 | T-06 | `C/ContactsPage.search.test.tsx`, `C/listParams.test.ts` |
 | AC-021 | T-07 | `C/ContactsPage.paging.test.tsx` |
-| AC-022 | T-07 | `C/ContactsPage.paging.test.tsx` |
+| AC-022 | T-07 | `C/ContactsPage.paging.test.tsx`, `C/listParams.test.ts` |
 | AC-023 | T-07 | `C/ContactsPage.paging.test.tsx` |
 | AC-024 | T-07 | `C/ContactsPage.paging.test.tsx` |
 | AC-025 | T-07 | `C/ContactsPage.paging.test.tsx` |
 | AC-026 | T-08 | `C/ContactsPage.paging.test.tsx` |
 | AC-027 | T-07 | `C/ContactsPage.paging.test.tsx`, `C/listParams.test.ts` |
 | AC-028 | T-08 | `C/ContactsPage.paging.test.tsx` |
-| AC-029 | T-09 | `C/NewContactPage.validation.test.tsx` |
+| AC-029 | T-09 | `C/NewContactPage.validation.test.tsx`, `C/contactFormRules.test.ts` |
 | AC-030 | T-09 | `C/NewContactPage.validation.test.tsx`, `C/contactFormRules.test.ts` |
 | AC-031 | T-09 | `C/NewContactPage.validation.test.tsx`, `C/contactFormRules.test.ts` |
 | AC-032 | T-09 | `C/NewContactPage.validation.test.tsx`, `C/contactFormRules.test.ts` |
-| AC-033 | T-09 | `C/NewContactPage.validation.test.tsx` |
+| AC-033 | T-09 | `C/NewContactPage.validation.test.tsx`, `C/contactFormRules.test.ts` |
 | AC-034 | T-11 (rules in T-09) | `C/NewContactPage.test.tsx`, `C/contactFormRules.test.ts` |
 | AC-035 | T-09 | `C/NewContactPage.validation.test.tsx` |
 | AC-036 | T-10 (client), T-13 (server) | `C/NewContactPage.validation.test.tsx`, `C/NewContactPage.test.tsx` |
@@ -310,6 +310,6 @@ Paths below are relative to `web/src/`. `C/` = `web/src/features/contacts/`.
 | NFR-001 | all tasks; FINAL review | all test files (MSW + `renderWithProviders`; ProblemDetails from `test/msw/problems.ts`) |
 | NFR-002 | all tasks; FINAL review | all component test files (role, label, and text queries only) |
 | NFR-003 | T-01; FINAL review | `api/client.test.ts`; inspection |
-| NFR-004 | T-02 (starter removed); every task's evidence | command evidence (`LINT_CMD`, `TYPECHECK_CMD`, `FRONTEND_TEST_CMD`, `BUILD_CMD`) |
+| NFR-004 | T-02 (starter removed); every task's evidence | `App.test.tsx` (`no longer shows the Vite starter content`); command evidence (`LINT_CMD`, `TYPECHECK_CMD`, `FRONTEND_TEST_CMD`, `BUILD_CMD`) |
 | NFR-005 | T-01; FINAL review | `api/client.test.ts`; inspection (no `console.`) |
 | NFR-006 | FINAL review (manual) | `review.md` smoke record |

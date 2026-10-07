@@ -58,7 +58,7 @@ All paths are under `web/`. No API or backend change.
 | `src/test/setup.ts` | modified (test-writer) | Start/reset/close the MSW server; `onUnhandledRequest: 'error'` |
 | `src/test/msw/*`, `src/test/renderWithProviders.tsx`, `src/test/deferred.ts` | new (test-writer) | See Test strategy |
 | `src/**/*.test.ts(x)` | new (test-writer) | See Test strategy. `src/test/smoke.test.tsx` stays |
-| `docs/adr/0010-*.md` | new (planner) | Proposed |
+| `docs/adr/0010-*.md` | new (planner) | Accepted (2026-10-06) |
 
 ## Interfaces & data
 These signatures are what the tests target. The implementer may add private helpers. Public names should stay as written unless the test-writer and implementer agree on a change in the task's review.
@@ -211,7 +211,7 @@ type PaginationProps = { page: number; totalPages: number; onPageChange: (page: 
 // changes, by adjusting state during render rather than with a `key`, so focus survives a submit (Back/Clear reset the box)
 type ContactSearchFormProps = {
   initialTerm: string
-  initialError?: string          // set when the address term is too long (AC-049)
+  initialError: string | null    // required; the max-length message when the address term is too long (AC-049), else null
   onSearch: (term: string | null) => void
 }
 
@@ -258,7 +258,7 @@ The success navigation uses `navigate('/contacts', { state: { createdContactName
 | | textboxes labelled | `First name` (`aria-required="true"`), `Last name`, `Email`, `Phone`, `Company`, `Notes` (textarea) |
 | | button | `Save`; while pending `Saving…` (U+2026), `disabled` |
 | | link | `Cancel` → `/contacts` |
-| | field error | text under the field, id `{field}-error`, linked by `aria-describedby`, field `aria-invalid="true"` |
+| | field error | text under the field, id `contact-{field}-error`, linked by `aria-describedby`, field `aria-invalid="true"` |
 | | `alert` (form level) | unknown-key messages verbatim, or `The contact couldn't be saved. Try again.` |
 
 ## Test strategy
@@ -324,7 +324,7 @@ All web tests use Vitest, Testing Library, user-event, and MSW (`FRONTEND_TEST_C
 - **Stale list after create.** Handled by `removeQueries` (not `invalidateQueries`) before navigating. AC-046 asserts the loading state, then the new row.
 - **The one-off confirmation persists in history state.** A reload or Back to that entry shows it again. That's acceptable for this spec. Any search or paging creates new entries without it.
 - **Production retry delay.** `main.tsx` uses TanStack defaults (3 retries with backoff), so a failed list shows its error after about 7 s in the real app. Tests use `retry: false`. Not changed here, because spec 004 has no criterion for it and untested config shouldn't be added. Listed as a follow-up.
-- **Native validation interference.** `type="email"` with `noValidate` avoids browser bubbles. jsdom's sanitization only strips the outer whitespace and newlines of an email input, and the app trims anyway.
+- **Native validation interference.** The form has `noValidate`, which avoids browser bubbles. The Email input is `type="text"` as built (not `type="email"`), so neither the browser nor jsdom sanitizes its value, and the app trims anyway. `type="text"` has no behavioural cost under `noValidate`. Spec 005 reuses the form and may reconsider `type="email"`, with a test, because jsdom sanitizes email-input values (FINAL review, Nit 24).
 - **React Router majors move fast** (v7 → v8 in 2026). Pin `^8.4.0`, use only the declarative API (ADR-0010), and upgrade deliberately.
 - **Relative URLs in tests.** Verified during planning: Vitest's jsdom environment resolves `fetch('/api/…')` against `http://localhost:3000`. MSW matches relative handler paths. A jsdom `AbortController` signal is accepted, and `HttpResponse.error()` rejects with `TypeError`.
 

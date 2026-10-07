@@ -826,3 +826,165 @@ Without these, the response would be classed as `validation` and nothing would s
 - **This completes the form side (T-09 to T-14).** Open Nits carried to FINAL: 24 (`type="email"`, skipped) and 28 (blank firstName → `''` unit row, deferred in tasks.md).
 
 **Commit:** no Blocking findings, so T-14 can be committed.
+
+## FINAL: 2026-10-07: APPROVE
+
+**Scope reviewed:** the whole spec, `main` 85749c8..b37c8d5 on `feat/004-web-contacts-list-create` (14 commits, 58 files). The working tree was clean at the start.
+
+**Checks (re-run by the reviewer):**
+- `TEST_CMD`: backend 649/649, web 301/301 in 13 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- `BUILD_CMD`: pass (dotnet build, then vite build, with 303.9 kB JS).
+- `npx prettier --check src index.html`: clean.
+- `npm audit --omit=dev`: 0 vulnerabilities.
+
+**FINAL inspection (NFR-001, NFR-002, NFR-003, NFR-005):**
+- **`fetch(`:** only at `web/src/api/client.ts:113`. Every other hit is `refetch()`.
+- **`console.`:** no hits in `web/src` outside tests. The one test hit is `vi.spyOn(console, 'error')` in `NewContactPage.test.tsx:714`. It asserts there are no React duplicate-key warnings, so it isn't a mock of a module or hook.
+- **Test-id or class queries:** none. There are no `ByTestId`, `data-testid` or class selectors.
+- **Structural queries:** five, each accepted in its task review because no role, label or text exists for these attributes:
+  - `tagName` for the textarea (T-09);
+  - `labels[0].querySelectorAll('[aria-hidden]')` for the required marker (T-09);
+  - `container.querySelector('form')` for `novalidate` (T-09) and for the `fireEvent.submit` guard (T-11);
+  - `closest('[role="status"]')`, because a `status` region gets no name from its content (T-12).
+- **`vi.mock`, `vi.doMock`, `vi.stubGlobal`:** none. HTTP is mocked only through MSW, with `onUnhandledRequest: 'error'`, and error bodies come from `test/msw/problems.ts` as problem+json.
+- **No skipped tests:** there is no `.skip`, `.only`, `.todo`, `xit` or `xdescribe`.
+- **Dependencies:** the `web/package.json` diff adds only `react-router` ^8.4.0 (ADR-0010). The lockfile adds only `react-router`, `cookie-es` and `@remix-run/route-pattern`.
+- **Secrets:** none. There are no password, token or API-key strings, and the `ApiError` message is fixed per status (NFR-005).
+
+**Traceability (both directions, scripted over every `it`/`test` title in `web/src`):** all 49 ACs map to at least one test whose name carries the ID. Per-file counts:
+
+| AC | Test files (count) | AC | Test files (count) |
+|---|---|---|---|
+| 001-004 | App (1, 2, 1, 1) | 027 | paging 3, listParams 9 |
+| 005 | ContactsPage 1 | 028 | paging 4 |
+| 006 | ContactsPage 4, contactName 2 | 029 | validation 6, contactFormRules 1 |
+| 007 | ContactsPage 2 | 030 | validation 2, rules 2 |
+| 008 | ContactsPage 2 | 031 | validation 3, rules 7 |
+| 009 | ContactsPage 2, client 5 | 032 | validation 2, rules 7 |
+| 010 | ContactsPage 2 | 033 | validation 1, rules 1 |
+| 011 | ContactsPage 1 | 034 | NewContactPage 2, rules 6 |
+| 012 | ContactsPage 2 | 035 | validation 2 |
+| 013 | search 4 | 036 | NewContactPage 5, validation 5 |
+| 014 | search 1 | 037 | NewContactPage 4, validation 7 |
+| 015 | search 1 | 038 | NewContactPage 3, rules 3 |
+| 016 | search 2 | 039 | NewContactPage 4 |
+| 017 | search 1 | 040 | NewContactPage 6, contactFormErrors 3, client 2 |
+| 018 | search 5 | 041 | NewContactPage 3, contactFormErrors 3 |
+| 019 | search 3 | 042 | NewContactPage 1, contactFormErrors 2, client 3 |
+| 020 | search 1 | 043 | NewContactPage 1 (5-row `it.each`), contactFormErrors 4, client 6 |
+| 021 | paging 1 | 044 | NewContactPage 4 |
+| 022 | paging 2, listParams 2 | 045 | NewContactPage 6 |
+| 023 | paging 2 | 046 | NewContactPage 1 |
+| 024 | paging 3 | 047 | validation 3 |
+| 025 | paging 3 | 048 | validation 1 |
+| 026 | paging 1 | 049 | search 4, listParams 5 |
+
+| NFR | Coverage |
+|---|---|
+| NFR-001 | Inspection, see above. Every page test renders `<App />` through `renderWithProviders`. |
+| NFR-002 | Inspection, see above. |
+| NFR-003 | `client.test.ts` (2 tests) plus the grep. |
+| NFR-004 | `App.test.tsx` `no longer shows the Vite starter content` plus the gates. |
+| NFR-005 | `client.test.ts` (1 test) plus the grep. |
+| NFR-006 | The smoke below; manual. |
+
+Only 2 tests carry no AC tag: `renderWithProviders.test.tsx` and `smoke.test.tsx`. Both are utility tests, which is acceptable. No test carries an ID that isn't in the spec.
+
+**Traceability table in tasks.md vs reality:** every listed file exists, and no entry is stale. It's incomplete in four places (Finding 33, documenter):
+- AC-022 is also in `listParams.test.ts` (T-07, `toSearchParams`).
+- AC-029 and AC-033 are also in `contactFormRules.test.ts` (T-09).
+- NFR-004 is also `App.test.tsx` (T-02).
+- The header says "test names filled in during build", but no names were filled in.
+
+**Cross-task inspection:**
+- **Dead code and starter leftovers:** none in `web/src` or `index.html`. Every exported symbol is used, or is a plan-prescribed public type (`ApiErrorKind`, `ProblemDetails`, `ListAddress`, `contactKeys`). `smoke.test.tsx` stays, as the plan says. Two starter leftovers remain outside `src`, and both are tracked:
+  - `web/README.md` is still the Vite template README (plan "Doc drift", documenter).
+  - `public/favicon.svg` is the Vite logo (see open items).
+- **CSS modules:** all 5 modules and all 10 classes are used. `.message` is used 6 times and `.fieldError` 3 times. No global class names remain (T-06 Nit 20 is closed).
+- **Duplicated constants:**
+  - `MAX_SEARCH_LENGTH` and `maxLengthMessage` are shared by the submit and address checks.
+  - The ADR-0006 texts live once, in `lib/validationMessages.ts`.
+  - `CONTACTS_PAGE_SIZE` is defined once.
+  - Email's 254 in `CONTACT_FIELD_MAX` is a separate rule, not a duplicate.
+  - The route strings `'/contacts'` and `'/contacts/new'` are literals in 5 files. That's acceptable at this size; spec 005 can extract them if detail routes arrive.
+- **`FieldError` style:** consistent for field-level errors. The search box and all six form fields render `<p id=... className={fieldError}>` under the control, with matching `aria-invalid` and `aria-describedby`. Two divergences, both cosmetic (Nit 32):
+  - The form-level alert puts the class on a `<div role="alert">`, so its inner `<p>`s keep the browser's default 1em margins.
+  - The list's load-error alert uses `.message` and isn't red.
+- **Id and `aria-describedby` uniqueness:** probed in scratch.
+  - The list page renders exactly one id, `contact-search`, plus `contact-search-error` while the error shows.
+  - The create page renders `contact-{field}` and `contact-{field}-error`.
+  - There are no collisions within a page or across the two pages. `aria-describedby` and the error `<p>` are gated on the same `error` value, so the attribute never points at a missing id.
+- **Confirmation lifetime (probe):** after a create, submitting a search removes the confirmation, because `setSearchParams` pushes an entry without state. This matches the plan risk note.
+- **Cancel while saving (probe):** this is a spec gap, not a defect (Finding 31). Flow: Save with the POST held, then `Cancel` (still enabled), which lands on `/contacts` and shows the pre-create list (1 GET). Then the POST is released.
+  - The contact is created, but there's no confirmation and the list still lacks it.
+  - The hook-level `removeQueries` runs, but the mounted list observer keeps its data until the next navigation (the header link gives GET 2 and shows the contact).
+  - No AC covers it: AC-047 is about not *sending*, and here the request was already sent.
+
+**NFR-006 smoke against the real API.** This used a throwaway DB, and the developer's `src/MicroCrm.Api/microcrm.db` MD5 was `a1d7c8be…` before and after.
+```
+ConnectionStrings__MicroCrm="Data Source=<scratchpad>/smoke.db" dotnet run --project src/MicroCrm.Api --urls http://localhost:5080   # migrations applied on start
+npm --prefix web run dev                                                   # Vite on :5173, /api proxied to :5080
+B=http://localhost:5173; E=smoke-1791383791@example.com
+curl -X POST $B/api/contacts -H 'Content-Type: application/json' -d '{"firstName":"Ada","lastName":"Lovelace","email":"'$E'",...null}'
+  -> 201, Location /api/contacts/01a116cb-…, body echoes the contact (camelCase, nulls present)
+curl "$B/api/contacts?search=$E&page=1&pageSize=20"
+  -> 200 {"items":[{…Ada Lovelace…}],"page":1,"pageSize":20,"totalCount":1}
+curl -X POST … same email
+  -> 409, Content-Type application/problem+json, title "A contact with this email already exists."
+curl -X POST … firstName "  ", lastName 101, email "x@", phone 51, company 201, notes 4001 chars
+  -> 400 application/problem+json, errors keys exactly firstName, lastName, email, phone, company, notes
+     (the 6 form field names); messages "Required.", "Must be 100 characters or fewer.",
+     "Must be a valid email address.", "Must be 50 …", "Must be 200 …", "Must be 4000 …" (identical to the client's text)
+curl "$B/api/contacts?search=<254 a>" -> 200;  "<255 a>" -> 400 errors.search ["Must be 254 characters or fewer."]  (confirms AC-018/AC-049 rationale)
+curl $B/  $B/contacts  $B/contacts/new  "$B/contacts?search=ada&page=2"  $B/nope
+  -> each 200 text/html, index.html (<div id="root">, <title>MicroCRM)  (deep links work in dev)
+curl $B/src/main.tsx, $B/src/features/contacts/ContactsPage.tsx -> 200 (the app compiles in dev)
+```
+Both servers were stopped (killed by PID on :5080 and :5173), and `smoke.db` was deleted.
+
+**Pending the owner's manual check in a browser.** These steps were NOT done by the reviewer:
+1. Open `/`. The address becomes `/contacts`, and the list renders.
+2. Create a contact with a unique email. You land on the list and see `Contact "… …" created.`.
+3. Search for it by email. It's listed.
+4. Create another contact with the same email. `A contact with this email already exists.` shows under Email, Email is marked invalid, focus is on Email, and the typed values are kept.
+5. Reload a `/contacts?search=…&page=2` address. The box and page are restored. Then use Back across a search and a page change.
+6. Simulate an unexpected failure (stop the API, then Save). Note where focus lands once Save re-enables (the T-14 note: jsdom can't show the blur of a disabled button) and whether the alert is announced.
+7. Optional, with a screen reader: whether the post-create `status` is announced on the route change (see the open items).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 31 | Nit | follow-up spec (owner decision) | web/src/features/contacts/ContactForm.tsx:154, NewContactPage.tsx:22-26 | `Cancel` stays enabled while the POST is pending. Cancelling then creates the contact silently: there's no confirmation, and the list on screen stays stale until the next navigation (probe above). No AC covers it. | In spec 005, which reuses `ContactForm` for edit, decide one of these: disable Cancel while saving; or make "cancel after send" explicit and refresh the list (for example `invalidateQueries` as well as `removeQueries`, or navigate on success regardless). |
+| 32 | Nit | implementer (optional) | ContactForm.tsx:144; ContactsPage.tsx:54 | `FieldError` style differences. The form alert has the class on the `div`, so the inner `p` margins are larger. The list's load-error alert isn't styled as an error. | Optional: style the alert `p`s with `margin: 0`, or a shared `ErrorAlert` style. Fold it into spec 005. |
+| 33 | Should-fix | documenter | specs/004-…/tasks.md Traceability | The table is missing 4 file mappings (above), and its header promises test names that were never filled in. | During `/document`, add the missing files. Then either fill in the test names (generate them from the `[AC-nnn]` titles) or reword the header to "test files". |
+
+**Open items: final calls.** None of these blocks Done.
+| Item | Decision | Owner |
+|---|---|---|
+| Nit 24 (`type="email"`) | Not blocking; leave it. No AC needs it, and `type="text"` has no behavioural cost under `noValidate`. Reword the plan's risk note, which assumes `type="email"`. Reconsider in spec 005, which reuses the form, with a test, because jsdom sanitizes email-input values. | documenter (plan note); follow-up spec 005 |
+| Nit 28 (blank firstName unit row) | Not blocking: unreachable through the page. Add the row when spec 005 touches `contactFormRules` (an update request mapper). | follow-up spec 005 (test-writer) |
+| Status announced on a route change | Not blocking: AC-045 only requires role `status`. Verify with a screen reader in manual step 7. If one-off notices multiply in 005/006, add a persistent live region in `AppLayout`. | follow-up spec (005 or 006) |
+| Push vs replace after a create | Not blocking. Keep push (current): Back returns to an empty create form, which is harmless. No AC pins it, and the T-12 mutant review already noted this. Spec 005 may navigate to the detail page instead (Q7). | follow-up spec 005 |
+| TanStack retry delay (about 7 s before the list error in the real app) | Not blocking: there's no criterion, and untested config shouldn't be added. Record it in the roadmap. A small spec or chore with a test can set `retry` (for example no retry on 4xx, 1 on 5xx). | follow-up spec; documenter records it |
+| Vite favicon | Not blocking: the plan explicitly allows it, and the owner approved the plan. Replace or remove it as a trivial `chore(004)`; no spec needed. | chore (owner) |
+| `path-guard.sh` gap (Bash edits and `git checkout`/`restore` bypass role boundaries; T-08 incident) | Not blocking for spec 004: the T-08 change was restored and verified (orchestrator re-check). I didn't audit authorship per commit, and the hooks can't prove it either. Still unfixed: hooks are unchanged since bootstrap, and `docs/harness-guide.md:59` covers shell redirection but not destructive git. | harness (owner): add a `Bash` PreToolUse hook that denies `git checkout\|restore\|stash\|reset\|clean` and redirection into role-foreign paths for subagents, then document it in `harness-guide.md` and `agent-contracts.md` |
+
+**Doc drift for `/document`** (beyond plan section "Doc drift", which still applies in full):
+- **ADR-0002:** the stack table still says ESLint; the project uses oxlint.
+- **`docs/architecture.md`:** rows 29 and 30 still say "planned".
+- **`web/README.md`:** still the Vite starter README.
+- **`docs/roadmap.md`:** row 004 isn't marked Done yet.
+- **CHANGELOG:** no 004 entry yet.
+- **plan.md:**
+  - The "Components touched" row for ADR-0010 still says "Proposed"; the ADR is Accepted.
+  - The UI table has `{field}-error`; the code uses `contact-{field}-error` (T-09 note).
+  - `ContactSearchForm.initialError` is now `string | null` and required.
+  - The `type="email"` risk note.
+- **tasks.md:** traceability (Finding 33).
+
+**Notes:**
+- **Conformance:** each AC's behaviour was verified by its task review with mutants. FINAL found no cross-task regression. The list rendering order matches plan rules 0 to 5. The form uses `noValidate` and has no `maxLength`/`required`. The client rules mirror `ContactInput`, and the real API returned identical message text in the smoke.
+- **Constitution:** all checks hold. Every AC is traced, all suites are green, there's one dependency and it has an ADR, there are no secrets, and errors are explicit (no swallowed rejections).
+- **Commit:** this FINAL adds only this entry to `review.md`. With no Blocking findings, spec 004 can move to `/document`. The manual steps above are still pending the owner.

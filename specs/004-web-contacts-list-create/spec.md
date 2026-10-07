@@ -1,6 +1,6 @@
 # 004: Web: contacts list and create form
 
-**Status:** Approved
+**Status:** Approved (Done pending the owner's NFR-006 browser check; see review.md FINAL)
 **Type:** Feature
 **Author:** Allan Downs with planner
 **Created:** 2026-10-06  **Approved:** 2026-10-06
@@ -171,4 +171,15 @@ None.
 - [x] Q-A: A search term longer than 254 characters after trimming that arrives in the address (a hand-edited or shared link) is handled like AC-018: show the 254-character message on the search box and send no list request, rather than sending it and showing the load error from the API's 400. Owner chose (b) on 2026-10-06 (AC-049).
 
 ## Implementation notes
-_Added by documenter after completion: links to main modules and tests._
+Modules (under `web/src/`):
+- `App.tsx`: the one `<Routes>` (`/` redirects to `/contacts`, `contacts`, `contacts/new`, `*` not found) inside the `components/AppLayout.tsx` layout route; `main.tsx`: `BrowserRouter` + `QueryClientProvider` (TanStack defaults)
+- `api/client.ts` (`apiGet`, `apiPost`, `ApiError` with kind `validation` | `conflict` | `unexpected`), `api/types.ts` (DTOs)
+- `features/contacts/`: `ContactsPage`, `ContactsTable`, `ContactSearchForm`, `NewContactPage`, `ContactForm`; hooks `useContacts.ts` (`useContactsList`, `useCreateContact`, `contactKeys`, `CONTACTS_PAGE_SIZE` = 20); pure rules `listParams.ts` (address <-> params), `contactFormRules.ts`, `contactFormErrors.ts`, `contactName.ts`
+- `components/` (`AppLayout`, `Pagination`, `NotFoundPage`, `FieldError.module.css`), `lib/validationMessages.ts` (ADR-0006 texts, once)
+
+Tests: co-located `*.test.ts(x)` (13 files, 301 tests); helpers in `web/src/test/`. AC to test mapping: `tasks.md` Traceability. Review: `review.md` (FINAL: APPROVE).
+
+Open follow-ups (none block this spec; recorded in `docs/roadmap.md`):
+- Cancel stays enabled while saving (Finding 31); alert styling (Finding 32); `type="email"` on the Email input (Nit 24); blank-`firstName` unit row (Nit 28); persistent live region; push vs replace after create.
+- TanStack default retry (about 7 s before the list error); Vite favicon; `path-guard.sh` gap for Bash `git checkout`/`restore`.
+- The owner's manual browser check (FINAL review, steps 1 to 7) was pending at review time.

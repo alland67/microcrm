@@ -20,11 +20,13 @@ MicroCRM is a new, small, single-user app for contacts and to-dos. The owner cho
 | Frontend build | **Vite** (react-ts template) | Next.js: SSR not needed |
 | Server state | **TanStack Query** | Hand-rolled `useEffect` fetching; Redux Toolkit Query |
 | Frontend tests | **Vitest + React Testing Library + user-event + MSW** | Jest: slower, extra config with Vite |
-| Formatting / lint | `dotnet format`; ESLint (template) + Prettier | — |
+| Client routing | **React Router** (declarative mode), see ADR-0010 | TanStack Router, wouter, hand-rolled History API (ADR-0010) |
+| Formatting / lint | `dotnet format`; **oxlint** (`web/.oxlintrc.json`, `npm --prefix web run lint`) + Prettier | ESLint (named here originally; the Vite template ships oxlint) |
 | Solution format | `.slnx` (.NET 10 default) | legacy `.sln` |
 | Auth | **None in v1** | ASP.NET Core Identity / external IdP: when multi-user or deployed |
 
 ## Consequences
 - Agents follow `docs/conventions.md`, which encodes these choices.
 - Adding any library not listed here requires a plan entry and, if significant, a new ADR.
+- Amendment (2026-10-07, spec 004): the web lint tool row said ESLint, but the app has always used oxlint (the Vite template's choice), so the row now says oxlint. A "Client routing" row was added for React Router (ADR-0010). The other choices are unchanged.
 - Switching SQLite → PostgreSQL later is a provider + connection change plus a migration re-baseline; the tests' in-memory SQLite approach would then need revisiting.
