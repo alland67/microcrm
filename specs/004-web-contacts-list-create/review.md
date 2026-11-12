@@ -988,3 +988,17 @@ Both servers were stopped (killed by PID on :5080 and :5173), and `smoke.db` was
 - **Conformance:** each AC's behaviour was verified by its task review with mutants. FINAL found no cross-task regression. The list rendering order matches plan rules 0 to 5. The form uses `noValidate` and has no `maxLength`/`required`. The client rules mirror `ContactInput`, and the real API returned identical message text in the smoke.
 - **Constitution:** all checks hold. Every AC is traced, all suites are green, there's one dependency and it has an ADR, there are no secrets, and errors are explicit (no swallowed rejections).
 - **Commit:** this FINAL adds only this entry to `review.md`. With no Blocking findings, spec 004 can move to `/document`. The manual steps above are still pending the owner.
+
+### NFR-006 owner browser check: 2026-11-11: PASS
+
+**Setup:** `DEV_API_CMD` and `DEV_WEB_CMD` against the developer DB. 25 seed contacts (`seedNN@seed.example.com`) were added through the API for paging. The owner confirmed the browser results; the API log confirms the server side.
+
+1. `/` redirects to `/contacts`, and the list renders: **pass**.
+2. Create with a unique email lands on the list with the created confirmation: **pass** (the log shows the INSERT).
+3. Search by email lists the contact: **pass** (the log shows the search queries).
+4. Duplicate email: the message shows under Email, Email is focused and the typed values are kept: **pass** (the log shows `UNIQUE constraint failed: Contacts.Email`, mapped to 409).
+5. Reloading `/contacts?search=seed&page=2` restores the box and page, and Back works across search and page changes: **pass** (owner-reported).
+6. API stopped, then Save: `The contact couldn't be saved. Try again.` shows, and the typed values are kept. One Tab after Save re-enables moves focus to a control near the form, so in this browser focus didn't drop to the page body: **pass**. Whether a screen reader announces the alert wasn't checked.
+7. Screen-reader announcement of the post-create `status`: **not checked** (optional; still open for spec 005).
+
+**Result:** NFR-006 is satisfied. Spec 004 is Done.

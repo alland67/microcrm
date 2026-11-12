@@ -1,6 +1,6 @@
 # 004: Web: contacts list and create form
 
-**Status:** Approved (Done pending the owner's NFR-006 browser check; see review.md FINAL)
+**Status:** Done
 **Type:** Feature
 **Author:** Allan Downs with planner
 **Created:** 2026-10-06  **Approved:** 2026-10-06
