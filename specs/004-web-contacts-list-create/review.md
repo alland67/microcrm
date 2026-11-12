@@ -1,0 +1,1004 @@
+# 004: Review log
+
+## T-01: 2026-10-06: APPROVE
+
+**Scope reviewed:** uncommitted working tree on `feat/004-web-contacts-list-create` against base 74a2ccf: `web/src/api/client.ts`, `web/src/api/client.test.ts`, `web/src/test/setup.ts`, `web/src/test/msw/{server,handlers,problems}.ts`. No dependency changes (`package.json` / lockfile untouched).
+
+**Checks:** `FRONTEND_TEST_CMD` pass, 21/21 (2 files, smoke test included) · `LINT_CMD` pass (dotnet format clean, oxlint clean) · `TYPECHECK_CMD` pass · `BUILD_CMD` (web) pass.
+
+**AC coverage (foundation only; the ACs themselves are owned by later tasks):**
+| AC / NFR | Test(s) in `web/src/api/client.test.ts` | Adequate? |
+|---|---|---|
+| AC-009 (foundation) | 200 relative URL; 502 text/plain → unexpected, problem null; network failure → status null; 200 non-JSON → unexpected; abort → AbortError | yes |
+| AC-040 (foundation) | apiPost JSON body + Content-Type; 400 `errors` → validation, keys unchanged (incl. `LastName` casing, multi-message) | yes |
+| AC-041 (foundation) | same validation test (keys passed through verbatim, so unknown keys survive) | yes |
+| AC-042 (foundation) | 409 with three titles → conflict | yes for problem bodies; see finding 2 |
+| AC-043 (foundation) | 400 without errors; 4 malformed `errors` shapes; 500; 404 | yes; see findings 1 and 2 |
+| NFR-003 | Accept header; non-`/api/` path throws plain Error (relative and absolute); grep: `fetch(` only in `api/client.ts` | yes |
+| NFR-005 | message excludes posted email and 409 title; grep: no `console.` in `web/src` | yes |
+
+**Mutation (scratch copy, 20 mutants on `client.ts`):** 14 killed (409 branch removed, element type check, abort not rethrown or rethrow-all, Accept, Content-Type, path check removed or `includes`, title in message, problem not stored, 2xx non-JSON returning undefined, status null on non-JSON, fieldErrors dropped, signal dropped). Survivors:
+- `status === 409 && problem` (409 with empty/non-JSON body becomes unexpected).
+- `status === 400 &&` removed (a 404/500 that carries `errors` becomes validation).
+- `!Array.isArray` removed from `isObject`; `problem` set for non-object JSON bodies (array/string). Plan: "parsed body when it was a JSON object, else null".
+- `isObject(problem.errors) &&` removed: equivalent (finding 3).
+- `instanceof Error` removed from the abort check: equivalent in practice, not a finding.
+
+Probe (scratch): a 400 with `errors: {}` or `errors: { firstName: [] }` gives `kind: 'validation'` with nothing to show.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 1 | Should-fix | implementer (test-writer adds the rows first) | web/src/api/client.ts:58-65, 83 | `isFieldErrors` is vacuously true for `errors: {}` and for keys with empty arrays, so those 400s become `validation` with no messages. When T-13/T-14 map that, the form will show no field error and no form-level alert. That breaks AC-043's "any response the page can't interpret" and the plan's "400 without a *usable* `errors`". The real API (ADR-0004) never sends this, so it isn't Blocking. | Test-writer: add `it.each` rows for `{}` and `{ firstName: [] }` → `unexpected`. Implementer: require at least one key with at least one string. Alternatively, decide explicitly that T-14's `contactFormErrors` treats an empty validation as `SAVE_FAILED_MESSAGE`, and record that in the plan. |
+| 2 | Should-fix | test-writer | web/src/api/client.test.ts:88-131 | The plan's classification rules have unpinned boundaries, and the survivors above show it: (a) a 409 "whatever the body says" (empty or text body); (b) "400 only" for `validation` (a 500 or 404 with an `errors` dict must be `unexpected`); (c) `problem` is null for a JSON body that isn't an object (array or string). | Add three rows: `new HttpResponse(null, { status: 409 })` → conflict; `problemJson(500, { errors: { firstName: ['x'] } })` → unexpected with `fieldErrors` `{}`; `HttpResponse.json(['x'], { status: 500 })` → `problem` null. Each kills one survivor. |
+| 3 | Should-fix | implementer | web/src/api/client.ts:83 | `isObject(problem.errors) &&` repeats the check `isFieldErrors` already starts with. The mutant that removes it is equivalent (0 failures). This is the same "unreachable guard" pattern rated Should-fix in specs 001-003. | Drop the `isObject(problem.errors) &&` term. |
+| 4 | Nit | test-writer | web/src/api/client.test.ts:137, 162 | Not Prettier-formatted (`prettier --check` warns). `LINT_CMD` doesn't run Prettier, so nothing fails. | `scripts/format-file.sh web/src/api/client.test.ts`. |
+| 5 | Nit | implementer | web/src/api/client.ts:67-73, 118-122 | The bare `catch` around `response.json()` turns an abort during the body read into an `unexpected` ApiError instead of rethrowing the AbortError. TanStack Query ignores a cancelled query's rejection, so nobody sees it. The plan only requires the rethrow when `fetch` rejects. I couldn't probe it (an MSW streamed body doesn't honour the abort). | Optional: rethrow when `options?.signal?.aborted`. |
+
+**Notes:**
+- Conforms to the plan: `ProblemDetails`, `ApiErrorKind`, `ApiError`'s public fields and `apiGet`/`apiPost` match plan section "API client". The `init`-object constructor is an allowed private detail. The message is fixed per status (`Request failed (409).` / `Request failed (no response).`), as in the plan's example. `setup.ts` matches the test strategy (`onUnhandledRequest: 'error'`, reset after each test, close after all, `cleanup` kept). `handlers.ts` is empty, which tasks.md allows.
+- Minimality: no `types.ts`, hooks, routes or extra kinds. No `console.*`. `fetch` is only in the client.
+- TDD discipline: the work is uncommitted, so I can't confirm the RED-before-GREEN order from history. Rely on the orchestrator's RED evidence for this.
+- Test names carry AC/NFR IDs. Tagging foundation tests with the downstream AC (for example `[AC-040]` on the apiPost 201 test) is acceptable, because tasks.md lists them as "foundation for".
+- Carry-forward to T-13/T-14: if finding 1 isn't fixed in the client, `contactFormErrors` must map an empty `validation` to the form-level save-failed message.
+
+## T-01 re-review (fix cycle 1): 2026-10-06: APPROVE
+
+**Checks:** `FRONTEND_TEST_CMD` pass, 30/30. That is the 21 earlier tests plus 9 new rows: 2 empty-`errors`, 2 for 409 with an empty or text body, 3 for 422/500/404 carrying `errors`, and 2 for a non-object JSON body. No test was removed or weakened. `LINT_CMD` pass · `TYPECHECK_CMD` pass · web build pass. No dependency changes. `fetch(` is only in `api/client.ts`. No `console.`.
+
+**Earlier findings:**
+- 1 (empty `errors`): closed. `isFieldErrors` now needs at least one key, and every value must be a non-empty string array. Mutants removing the key-count check or the message-count check each fail 1 test.
+- 2 (classification boundaries): closed. `409 && problem` fails 2 tests. Dropping `status === 400` fails 3. Allowing arrays in `isObject` fails 1. Setting `problem` for a non-object body fails 2.
+- 3 (duplicate `isObject` check): closed. The term is gone. `isFieldErrors` now has its own `isObject` guard, and removing that fails 1 test.
+- 4 (test file formatting): closed for `client.test.ts`.
+- 5 (abort during body read): deferred. It's a Nit, and I agree with reverting the change no test asked for.
+
+**Mutation:** 11 of 12 mutants caught.
+
+**New findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 6 | Nit | test-writer | web/src/api/client.test.ts:88-101 | Changing `lists.every(` to `lists.some(` fails no test (29/29 pass). Every malformed-`errors` row has a single key, so a dictionary with one valid and one invalid entry (for example `{ firstName: ['x'], lastName: 5 }`) would count as `validation` and go unnoticed. | Add that mixed row to the `it.each` table. |
+| 7 | Nit | implementer | web/src/api/client.ts:65 | The fix line isn't Prettier-formatted (`prettier --check` warns; `LINT_CMD` doesn't run Prettier). | `scripts/format-file.sh web/src/api/client.ts`. |
+
+## T-02: 2026-10-06: APPROVE
+
+**Scope reviewed:** uncommitted working tree on `feat/004-web-contacts-list-create` (base 74a2ccf, on top of T-01's uncommitted work). The T-02 files are:
+- `web/package.json` and `package-lock.json`: `react-router` ^8.4.0, which resolves to 8.4.0. The only new lock entries are `react-router`, `cookie-es` and `@remix-run/route-pattern`, as the plan expects.
+- `web/src/test/renderWithProviders.tsx`, `web/src/test/msw/requests.ts`, `web/src/App.test.tsx`.
+- `web/src/App.tsx`, `main.tsx`, `index.css`, `web/index.html`.
+- `web/src/components/AppLayout.tsx` (+ `.module.css`), `web/src/components/NotFoundPage.tsx`.
+- `web/src/features/contacts/{ContactsPage,NewContactPage}.tsx`.
+- Deleted: `App.css`, `assets/*`, `public/icons.svg`.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 39/39 in 3 files. That is T-01's 30 plus 9 new tests; none were removed.
+- `LINT_CMD`: pass (dotnet format and oxlint both clean).
+- `TYPECHECK_CMD`: pass.
+- Web build (`BUILD_CMD`): pass.
+- `npx prettier --check` on the changed files: clean.
+- `npm audit --omit=dev`: 0 vulnerabilities.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.` in `web/src`.
+
+**AC coverage:**
+| AC / NFR | Test(s) in `web/src/App.test.tsx` | Adequate? |
+|---|---|---|
+| AC-001 | `redirects / to the contacts list page` (heading + `getLocation().pathname`) | yes (`index_no_redirect` mutant fails 1) |
+| AC-002 | `shows the app header with a Contacts nav link on %s` (3 routes); `leads to the list page when the Contacts nav link is clicked` | mostly; see finding 8 |
+| AC-003 | `shows Page not found ... and sends no request on %s` (`/nope`, `/contacts/123/whatever`) | yes |
+| AC-004 | `shows the create page when /contacts/new is opened directly` | yes (`no_new_route` fails 2, `contacts/*` fails 1) |
+| NFR-004 | `no longer shows the Vite starter content` + the deleted files + gates above | yes |
+
+**Mutation (scratch copy, 15 mutants on the shell):** 13 were killed:
+- a fetch from NotFoundPage, both in an effect and during render;
+- the index route rendering the list instead of redirecting;
+- the brand moved out of `<header>`;
+- the nav left unlabelled;
+- `<header>` turned into a `<div>`;
+- the nav link pointing to `/contacts/new`;
+- `*` moved outside the layout route;
+- the not-found link pointing to `/`;
+- `contacts/new` removed;
+- `<h1>` changed to `<h2>`;
+- `contacts/*`;
+- a starter logo image injected.
+
+Survivors:
+- `nav` moved out of `<header>` (finding 8).
+- `<Navigate replace>` changed to a push. This is equivalent with a single-entry `MemoryRouter`: Back from `/` redirects forward again. AC-001 requires only the address change, so it's not a finding.
+
+**Test utility probes (scratch):**
+- **`recordRequests`.** The AC-003 "no request" assertion kills the fetch mutants on the `toHaveLength(0)` check itself, not only through `onUnhandledRequest: 'error'`. That still holds with a default `GET /api/contacts` handler installed (which later tasks add) and with a fetch delayed by `setTimeout(0)`.
+  - `url` keeps the query string (`?page=2&search=a%20b`).
+  - A POST `body` is parsed by the time `apiPost` resolves.
+  - The listener count is 1 during the test and 0 in the next test, so `onTestFinished` cleanup works. That's equivalent to the plan's "removed in afterEach".
+- **`getLocation`/`goBack`.**
+  - The initial location is correct right after render.
+  - The location is updated after a link click.
+  - `search` and `state` are captured after `navigate(url, { state })`.
+  - `goBack()` restores both the previous entry and its UI.
+  - Back past the first entry is a silent no-op (MemoryRouter behaviour).
+- **`rerender`** from the returned result throws `useRoutes() may be used only in the context of a <Router>` (finding 9).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 8 | Should-fix | test-writer | web/src/App.test.tsx:22 | AC-002 says the app *header* contains the "Contacts" navigation link. The test finds `navigation` named `Main` anywhere on the page, so moving `<nav>` out of `<header>` passes 9/9. The brand is correctly scoped with `within(banner)`. | `within(banner).getByRole('navigation', { name: 'Main' })`. That kills the `nav_outside_header` mutant. |
+| 9 | Should-fix | test-writer | web/src/test/renderWithProviders.tsx:43-53 | The providers and the probe wrap `ui` inline, but the helper returns `...result`, which includes `rerender`. `rerender(<App />)` re-renders without `MemoryRouter`/`QueryClientProvider` and throws. This shared utility is reused by every later web task and by specs 005/006. | Pass the providers and `<Probe />` through RTL's `wrapper` option (`render(ui, { wrapper })`), so `rerender` keeps them. Alternatively, leave `rerender` out of the returned type. |
+| 10 | Nit | implementer | web/src/main.tsx:10 | `document.getElementById('root')!` has no comment. Conventions say no `!` without one. It was carried over from the starter, but T-02 rewrote this file. | Add a one-line comment (`index.html` always has `#root`), or throw explicitly if it's missing. |
+
+**Notes:**
+- **Plan conformance.** The routes match plan section "Routes" exactly: the layout route, index `<Navigate to="/contacts" replace />`, `contacts`, `contacts/new`, `*`. `main.tsx` nests StrictMode → QueryClientProvider → BrowserRouter → App, as planned. `AppLayout` provides `<header>` with a non-heading "MicroCRM", `<nav aria-label="Main">` and `<main><Outlet/>`. NotFound has an h1 "Page not found" and a "Go to contacts" link to `/contacts`. The `renderWithProviders` signature and `RecordedRequest` match the plan.
+- **Minimality.** The page stubs are heading-only, and the list stub doesn't fetch. There are no hooks, API types, search, or paging. `index.css` is minimal, with no dark mode.
+- **Accessibility of the shell.** It has banner, navigation (labelled) and main landmarks, `<html lang="en">`, and the title `MicroCRM`. The brand is not a heading, so each page's h1 is its only top-level heading. `aria-current` on the nav link isn't required by any AC (optional `NavLink` later).
+- **Starter removal.** No counter, starter images, "Get started" text, or starter links remain in `web/src` or `index.html`. `public/favicon.svg` is still the Vite logo. The plan explicitly allows it ("may stay"), so it's not a finding; see follow-ups.
+- **Process.** The pre-RED `chore(004)` dependency commit wasn't made separately, because `COMMIT_PER_TASK=0` and everything is uncommitted. The orchestrator should commit the dependency separately if it wants the planned history.
+
+## T-03: 2026-10-06: APPROVE
+
+**Scope reviewed:** uncommitted working tree.
+- Tests: `web/src/test/msw/{fixtures,handlers}.ts`, `features/contacts/{contactName.test.ts,ContactsPage.test.tsx}`.
+- Production: `api/types.ts`, `features/contacts/{contactName.ts,useContacts.ts,ContactsTable.tsx,ContactsPage.tsx}`.
+- T-02 follow-ups: `App.test.tsx`, `test/renderWithProviders.tsx`, the new `test/renderWithProviders.test.tsx`, `main.tsx`.
+- No new dependency: the `package.json` diff is still only T-02's `react-router`.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 51/51 in 6 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+
+**T-02 follow-ups:** all closed.
+- 8: the nav is now queried `within(banner)`; the nav-outside-header mutant fails 3.
+- 9: the helper now uses `render(ui, { wrapper })`; reverting it to the inline form fails the new `renderWithProviders.test.tsx`.
+- 10: `main.tsx:10` now has the comment.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-005 | `ContactsPage.test.tsx` `requests page 1 with page size 20 and no search term` (exactly one GET; checks `page`, `pageSize`, and no `search`) | yes |
+| AC-006 | `shows column headers ... in that order`; `shows one row per contact in the order returned`; `shows name, email, company and phone as returned`; `shows empty cells and a first-name-only Name for null values`; `contactName.test.ts` (2) | yes |
+| AC-007 | `shows the total count from the API, plural` (45 with 2 items); `shows "1 contact"` | yes |
+| AC-012 | `shows a New contact link to the create page`; `leads to the create page when New contact is clicked` | partly; see finding 11 |
+
+**Mutation (scratch copy, 24 mutants):** 17 were killed:
+- the count taken from `items.length`, or always plural;
+- sorting by first name, by last name, or reversing the rows;
+- swapping the Company and Phone cells or headers;
+- showing `—` for null;
+- removing the caption (fails 5);
+- using `td` for the headers;
+- a trailing space or double space in the name;
+- dropping `pageSize`, a page size of 25, `page - 1`;
+- `search=''` always sent, and a `search: ''` param.
+
+Survivors:
+- The "New contact" link rendered only once data has arrived (finding 11).
+- Four equivalent mutants, which are not findings:
+  - `totalCount <= 1`: only 0 differs, and the T-04 empty state replaces the count at 0.
+  - `!c.lastName` instead of `=== null`: the API trims blanks to null.
+  - Removing `scope="col"`: a `th` in `thead` is a columnheader either way.
+  - My `refetchOnMount` mutant was malformed and can be ignored.
+- **Not pinned yet** (both are plan-prescribed):
+  - **The `signal` pass-through.** Nothing at this level can see it. AC-020 holds through separate cache keys, not through aborting.
+  - **The query key shape `['contacts', params]`.** A key that drops `search` will fail at T-05 (AC-013/AC-019), and a key outside the `['contacts']` prefix will fail at T-12 (AC-046 `removeQueries`). Check both mutants again at those tasks.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 11 | Should-fix | test-writer (can land with T-04's loading/error tests) | web/src/features/contacts/ContactsPage.test.tsx:115-131 | AC-012 says the "New contact" link shows whenever the list page is shown. Both AC-012 tests use a list that has already loaded, so moving the `Link` inside `{data && ...}` passes 20/20. Plan rendering rule 0 also needs the link when there's no request at all (AC-049). | Assert the `New contact` link while the list request is held open with `deferred()`, and after a 500 (an AC-012 row in the T-04 loading and error tests is enough). |
+
+**Notes:**
+- **Plan conformance.**
+  - `Contact`, `PagedResponse<T>` and `CreateContactRequest` match the plan DTOs.
+  - `CONTACTS_PAGE_SIZE`, `ContactListParams` and `contactKeys` match the plan.
+  - `contactDisplayName` matches the plan.
+  - The table is named by `<caption>Contacts</caption>` and has `th scope="col"` headers.
+  - The request is `GET /api/contacts?page=1&pageSize=20`, built through `apiGet` with TanStack's `signal`.
+  - `useContactsList` doesn't take the `{ enabled }` option yet. That's correct minimality, because AC-049 owns it.
+- **Minimality.** No loading/error/empty states, search, paging or address params yet. The interim `0 contacts` plus an empty table for an empty result is a placeholder that T-04 replaces and tests, so it isn't drift.
+- **Test utilities.**
+  - `aContact` uses a module-level counter, so ids are unique within each test file.
+  - The default handlers match the plan: GET echoes page and pageSize with an empty page, and POST returns a 201 echo.
+  - `renderWithProviders.test.tsx` has no AC ID. That's acceptable for a utility test.
+
+## T-04: 2026-10-06: APPROVE
+
+**Scope reviewed:** uncommitted working tree.
+- Tests: `web/src/test/deferred.ts` (new) and `web/src/features/contacts/ContactsPage.test.tsx` (+5 tests).
+- Production: `web/src/features/contacts/ContactsPage.tsx` and `ContactsPage.module.css` (new).
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 56/56 in 6 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts` (the `refetch()` hit is a false positive), and there is no `console.`.
+- No dependency changes.
+
+**T-03 finding 11:** closed. Moving the `New contact` link into the results branch now fails 4 tests: the AC-008 loading test, the AC-009 500 test, and the two AC-012 tests.
+
+**AC coverage:**
+| AC | Test(s) in `ContactsPage.test.tsx` | Adequate? |
+|---|---|---|
+| AC-008 | `shows a loading status and no alert, empty message or table while the request is held` | yes, for the no-data case; see finding 12 |
+| AC-009 | `shows an alert with Try again ... after a 500`; `... after a network error` | yes |
+| AC-010 | `repeats the same request on Try again, shows loading, then the results` (2 GETs with the same query; loading shown and the alert gone while held; the table replaces the error) | yes, for the no-data case; see finding 12 |
+| AC-011 | `shows "No contacts yet." with an Add a contact link, no table or paging, when empty` | yes |
+| AC-012 (loading/error) | AC-012 assertions inside the AC-008 and AC-009 (500) tests | yes |
+
+**Mutation (scratch copy, 20 mutants):** 13 were killed:
+- link in results only (fails 4);
+- loading = `!data` (fails 3);
+- `role="status"` removed;
+- `role="alert"` removed;
+- Try again doing nothing;
+- the empty-state link removed, or pointing to `/contacts`;
+- a table added to the empty state;
+- the empty message added to loading;
+- an alert added to loading (fails 4);
+- the empty message added to the error state.
+
+Survivors, all equivalent under today's tests:
+- loading = `isFetching` alone;
+- loading = `isPending`;
+- loading = `!data && !isError`;
+- the error branch moved before loading (with or without `!isFetching`);
+- empty decided by `items.length === 0`, which T-08's AC-028 must kill.
+
+My Try-again-outside-the-alert mutant was a no-op, so it wasn't run. That case is pinned anyway by `within(alert).getByRole('button', { name: 'Try again' })` in the 500 test.
+
+**On the coordinator's question (`isFetching && !data`):**
+- **Matches the plan.** It is a literal translation of plan rendering rule 1: "no data yet for the current key, and a request is in flight". It's checked before the error branch, which is what tasks.md's "loading checks `isFetching` before error" asks for.
+- **Why the order survives (probed).** In TanStack Query v5, a refetch of an errored query *with no data* resets the state to `status: 'pending'` and `error: null` while fetching. The plan's risk note ("TanStack keeps `status === 'error'` while refetching") is therefore only true when the query already has data. That is why every order mutant survives.
+- **Later tasks:**
+  - **Search and page changes (T-05/T-07) and AC-020.** Each new key starts with no data and no `placeholderData`, so it shows loading. Each response lands in its own key, so a late one can't replace the current view.
+  - **AC-046 (T-12).** `removeQueries` leaves no data, so the list shows loading and then fetches.
+  - **AC-049 (T-06).** A disabled query is `pending` and idle, so `isFetching && !data` is false and the state slot renders nothing. That is rule 0 by construction, whereas `isPending` would wrongly show loading. This is the strongest reason to keep the implementer's form, and AC-049 will kill the `isPending` mutant.
+  - **AC-026 Back to a cached key (T-07).** The cached table shows during the background refetch, with no loading flash. That's sensible, and tests there should expect the table.
+- **The one weak spot** is a query that has data *and* is in the error state (finding 12).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 12 | Should-fix | test-writer, then implementer | web/src/features/contacts/ContactsPage.tsx:13-17 | Scenario: a key has data and a background refetch fails (window refocus, or remount of a stale key; production uses 3 retries). The query then has `status: 'error'` with data, and the page correctly shows the alert (AC-009). But when the owner clicks "Try again", the alert stays and no loading indicator shows while the request is in flight, because `!data` is false. Probed: `status: 'error'`, `fetchStatus: 'fetching'`, alert shown, status absent. AC-008 says that while the request hasn't completed, the page shows loading and not the error. The plan's own rule 2 ("`isError` and not fetching") would show the stale table instead, which also misses AC-008. | Test-writer: load a page, make a refetch fail (for example `focusManager.setFocused(false/true)`, with the handler returning `problemJson(500)`), hold the Try again response with `deferred()`, and assert `status` `Loading contacts…` with no `alert` [AC-008/AC-010]. Implementer: loading = `isFetching && (!data \|\| isError)`, still checked before the error branch. That keeps the no-data behaviour and the AC-049 idle case unchanged. |
+
+**Notes:**
+- `deferred.ts` matches the plan (`{ promise, resolve }`). Its one `!` has the comment the conventions require.
+- **Minimality.** No search, paging, "empty page" (T-08) or no-match message yet. The CSS module holds a single margin rule.
+- **Accessibility.** The loading `role="status"` and error `role="alert"` regions are mounted together with their text. Some screen readers announce a live region reliably only when its content changes after it exists. The spec only asks for the roles, so this is noted for FINAL, not raised as a finding.
+- **Plan drift (for /document, planner).** The plan's "Error refetch looks like an error" risk should say that it only applies when the query already has data.
+
+## T-05: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of 7ed0082 (T-01 to T-04 are committed in 16c29a9).
+- Test: `web/src/features/contacts/ContactsPage.search.test.tsx` (8 tests).
+- Production: `features/contacts/listParams.ts` (new), `ContactSearchForm.tsx` (new), `ContactsPage.tsx`.
+- No dependency changes.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 65/65 in 7 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+
+**AC coverage:**
+| AC | Test(s) in `ContactsPage.search.test.tsx` | Adequate? |
+|---|---|---|
+| AC-013 | `submits a trimmed term with Enter ...`; `... with the Search button`; `shows different rows for different terms`; `sends no request while typing without submitting` | yes |
+| AC-014 | `shows page 1 of the new results when submitting from another page` (starts at `?page=3`) | yes |
+| AC-015 | `requests no search param at page 1 for a whitespace-only term` (starts at `?search=ada&page=2`) | yes |
+| AC-019 | `shows the address term in the box and requests the list filtered by it` (the first GET is already filtered) | yes |
+| AC-020 | `shows only the latest search when an earlier response arrives late` | yes, for the late response itself; see finding 14 |
+
+**Mutation (scratch copy, 17 mutants, full suite):** 10 were killed:
+- **Query key without `search` (carried over from T-03): fails 4.** Key outside the `['contacts']` prefix: fails 1, caught by the new T-04 finding-12 test.
+- Form doesn't trim: fails 3.
+- Blank submitted as `''`: fails 1.
+- Address `search` ignored: fails 7.
+- Search keeps the current page: fails 2.
+- `toSearchParams` always writes `page`: fails 4.
+- `page` ignored: fails 1.
+- Box starts empty: fails 1.
+- Keyed form: fails 2.
+
+Survivors:
+- The reset block in `ContactSearchForm` removed (finding 13).
+- `placeholderData: (prev) => prev` (finding 14).
+- Interim, owned by later tasks:
+  - `setSearchParams(..., { replace: true })` (AC-026, T-07);
+  - `toSearchParams` never writing `page` (Next/Previous, T-07);
+  - a looser `page || 1` parse (AC-027, T-07);
+  - an untrimmed address term (the plan's `listParams.test.ts` "254 with surrounding spaces" row at T-06/T-07).
+- `preventDefault` removed. jsdom doesn't implement form submission, so this can't be observed in tests. A real browser would do a native GET submit and reload the page.
+
+**Implementer deviation 1: `seenTerm` "adjust state on prop change" instead of `key`.** Accepted. Probed in scratch:
+- **Both forms reset the box on Back:** `?search=bob` → Back gives `?search=ada` with the box showing `ada`.
+- **Both forms reset it on the header Contacts link:** `''` with an empty box.
+- **The key costs focus.** With `key`, the input remounts on every submit and keyboard focus drops to `body` after Enter. With `seenTerm`, focus stays on the box. That's a real accessibility gain, not just a convenience for the tests.
+- **The intent is met:** "the box resets when the address term changes".
+- **Planner:** reword plan § Components (`ContactSearchForm`: "keyed by the address term") and the tasks.md T-05 "Done when". Suggested wording: "resets its text (and, from T-06, its error) when the address term changes, by adjusting state during render rather than with a `key`, so focus survives a submit".
+- **T-06 caveat.** The same block must also reset the local 254 error and `initialError` (AC-018/AC-049). A key would have done that for free.
+
+**Implementer deviation 2: a minimal `page` parse in `readListParams` at T-05.** Within scope.
+- **It's demanded.** The AC-014 test opens `?page=3` and asserts page 3's rows first, and the `page_ignored` mutant fails it.
+- **The guard is interim.** The `Number.isInteger && >= 1` guard goes beyond what is demanded (`page || 1` survives). It's an interim placeholder that T-07 replaces with the plan's `/^\d+$/` plus `MAX_PAGE` rule and tests. Under the spec 001 T-13 precedent that isn't drift.
+- **T-07 RED is still real.** `Number(' 2')`, `Number('+2')`, `Number('1e3')` and `99999999999` are all accepted today, so those AC-027 rows will fail first. `0`, `-1`, `2.5`, `abc` and absent will be guards.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 13 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx | The T-05 "Done when" ("resets when the address changes") isn't pinned. Removing `setTerm(initialTerm)` from the reset block passes 65/65. This is exactly the mechanism deviation 1 replaced, so it should be guarded now and not wait for AC-017/AC-026. | Add a test: submit `ada`, then `bob`, then `goBack()`, and assert that the box shows `ada`. Alternatively, type into the box on `?search=ada` and click the header `Contacts` link, then assert that the box is empty [AC-019]. |
+| 14 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx:171-177 | Adding `placeholderData: (prev) => prev` to `useContactsList` passes every test. The plan rejects it explicitly ("A new key shows the loading state rather than the previous page's table. That makes AC-008 and AC-020 hold by construction"). Nothing asserts what shows while a *new* search is in flight. | In the AC-020 test, after submitting `a` (held), assert `status` `Loading contacts…` and no `table` [AC-008/AC-020]. |
+| 15 | Nit | implementer | web/src/features/contacts/ContactSearchForm.tsx:27-30 | The input is labelled by wrapping it in `<label>`. Conventions say `<label htmlFor>`, and T-06 needs an `id` anyway for `aria-describedby="contact-search-error"`. | Use `<label htmlFor="contact-search">` with `<input id="contact-search">` (at T-06 at the latest). |
+| 16 | Nit | implementer | web/src/features/contacts/listParams.ts:4 | `readListParams` returns `ContactListParams`. The plan signature returns `ListAddress = { params, searchTooLong }`, and the T-07 unit tests target that shape. | Adopt `ListAddress` at T-06, when `searchTooLong` is demanded. |
+| 17 | Nit | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx:48, 65, 112, 132 | `listGets(requests).at(-1)!` uses `!` without a comment, which the conventions require. | Add a comment, or assert the length and then index. |
+
+**Commit:** there are no Blocking findings, so T-05 can be committed. Findings 13 and 14 are test-only and take a couple of lines each. Land them in a short fix cycle before the T-05 commit, or as the first thing in T-06. Either way, they must not slip past T-06.
+
+## T-06: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of c919731.
+- Tests: `web/src/features/contacts/listParams.test.ts` (new, 5 tests) and `ContactsPage.search.test.tsx` (+10).
+- Production: `web/src/lib/validationMessages.ts` (new), plus `features/contacts/{listParams.ts,useContacts.ts,ContactSearchForm.tsx,ContactsPage.tsx}`.
+- The test-file diff is purely additive (+191, −0), so the Prettier run reformatted no existing tests and none were weakened.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 82/82 in 8 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+- No dependency changes.
+
+**Earlier items:**
+- **T-05 findings 13 and 14:** closed (verified by the coordinator's mutants). The plan has been reworded.
+- **Finding 15 (`htmlFor`):** closed: `<label htmlFor="contact-search">` with `id="contact-search"`.
+- **Finding 16 (`ListAddress`):** closed: `readListParams` now returns `{ params, searchTooLong }`.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-016 | `shows the no-match message and Clear search, and no table, paging or empty message` | yes; see Nit 21 |
+| AC-017 | `empties the box and requests the unfiltered page 1 on Clear search` | partly; see finding 19 |
+| AC-018 | `shows the 254 message on a submitted term over 254 characters after trimming, and sends nothing`; `sends a submitted term of exactly 254 characters (boundary)`; `removes the 254 message after a valid term is submitted` | partly; see finding 18 |
+| AC-049 | `listParams.test.ts` (254, 254 padded, 255, 255 padded, absent); `opening the address with an over-long term` / `... padded with spaces` (no request, no list state, the link is still shown); `submitting a valid term from the over-long address state ...`; `shows the 254 message again, with no request, on Back ...`; `sends a request for an address term of exactly 254 characters (boundary)` | yes |
+
+**Mutation (scratch copy, 22 mutants, full suite):** 16 were killed:
+- `isPending` loading (see below);
+- `enabled` forced on, or ignored by the hook (fails 4 each);
+- `>=` instead of `>` in `readListParams` (fails 4) and in the form (fails 1);
+- the too-long check on the untrimmed value, in the address and in the form;
+- the form sending anyway;
+- the reset block missing `setError(initialError)`, or setting it to `null` (each killed by the Back test);
+- the reset block missing `setTerm` (fails 4);
+- `aria-invalid` removed (fails 4);
+- `aria-describedby` removed (fails 6);
+- `initialError` always null (fails 4);
+- the no-match branch off (fails 2).
+
+Survivors:
+- `setError(null)` removed from a valid submit (finding 18).
+- Clear search keeping the current page (finding 19).
+- The no-match text using the raw, untrimmed address term (Nit 21).
+- The no-match/empty decision by `items.length` (T-08 AC-028 owns it).
+- Clear search with `replace` (no AC demands a push for Clear).
+- Removing the rule-0 guard `searchTooLong ? null :` (see below).
+
+**Checks the coordinator asked for:**
+- **The `isPending` mutant.**
+  - *With rule 0 in place:* the AC-049 tests can't see it, because rule 0 renders nothing first. It is still killed, by T-04's `shows loading, not the stale error, when Try again retries after a failed background refetch`.
+  - *With rule 0 removed as well:* AC-049 kills it (fails 4). So the comment in the AC-049 test ("a loading condition on isPending would show this") holds only if rule 0 is gone.
+  - *Rule 0 on its own:* removing it with the current `isFetching && (!data || isError)` loading condition is equivalent (82/82). A disabled, never-fetched query is idle with no data, so nothing renders anyway.
+  - *Verdict:* it's prescribed by the plan (rendering rule 0, the T-06 "Done when") and it guards against a future change to the loading condition. Under the spec 003 T-08 precedent that's a note, not drift.
+- **Render-time reset and `initialError` on Back.** Correct. The reset block now sets the term, `seenTerm` and the error from `initialError`.
+  - The Back test (valid → Back to the 255-character address) kills both "error not reset" and "error reset to null".
+  - Probed: header link from `?search=zed&page=2` after a 255-character submit error gives an empty box and no error.
+  - Probed: the same link clicked while already on `/contacts` keeps the typed 255 characters and the error, because the address didn't change. A `key` would behave the same, and no AC covers it, so it's not a finding.
+- **The `htmlFor` nit:** closed.
+- **`<p className="field-error">`** (Nit 20).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 18 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx (AC-018 block) | Removing `setError(null)` from `handleSubmit` passes 82/82. Every "message removed" test submits a term that changes the address, so the render-time reset clears the error instead. When the address *doesn't* change, the stale message stays. Two examples: on `/contacts`, submit 255 characters and then submit a blank box; or on `?search=ada`, submit 255 characters and then submit `ada` again. | Add an AC-018 test: on `/contacts`, submit 255 characters, then clear the box and press Enter. Assert that the message and `aria-invalid` are gone. Optionally, on `?search=ada`, submit 255 characters and then `ada` again. |
+| 19 | Should-fix | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx (AC-017 test) | The AC-017 test starts at `?search=zed` (page 1), so a Clear that keeps the current page passes. The no-match state is reachable on page 2 (probed: `?search=zed&page=2` with `totalCount` 0 shows Clear search). AC-017 says "page 1 of the unfiltered list". | Start the AC-017 test at `/contacts?search=zed&page=2`, and assert that the request has `page=1` and the address is `/contacts`. |
+| 20 | Nit | implementer | web/src/features/contacts/ContactSearchForm.tsx:51 | `className="field-error"` is a global class with no CSS anywhere (`grep` finds only this line). Conventions use CSS modules, so this is a dead hook, and the error looks the same as body text. | Use a module class (for example a shared `FieldError` style that T-09's form can reuse), or drop the `className` until styling is wanted. |
+| 21 | Nit | test-writer | web/src/features/contacts/ContactsPage.search.test.tsx (AC-016 test) | AC-016 says the message shows "the trimmed term". The test types ` zed `, so the form trims it before it reaches the address. Rendering the raw address term passes. | Add a row that opens `/contacts?search=%20zed%20` with 0 results and expects `No contacts match "zed".` |
+
+**Notes:**
+- **Plan conformance.**
+  - `MAX_SEARCH_LENGTH`, `ListAddress`, `readListParams` and `maxLengthMessage` match the plan, and the submit and address checks share them.
+  - The hook takes `{ enabled }` and passes it to `useQuery`.
+  - The error id `contact-search-error` is linked through `aria-describedby`, with `aria-invalid="true"`.
+  - `initialError` is typed `string | null` and required, where the plan has `initialError?: string`. That's harmless.
+- **Minimality.** `validationMessages.ts` holds only `maxLengthMessage`; `REQUIRED` and `INVALID_EMAIL` wait for the form tasks. No paging and no "empty page" state.
+- **Accessibility.** The no-match message and Clear search sit in a plain `div`. The spec asks for no live region there.
+
+**Commit:** there are no Blocking findings, so T-06 can be committed. Findings 18 and 19 are test-only, a few lines each. Land them in a short fix cycle, or first thing in T-07; they shouldn't slip past T-07.
+
+## T-07: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of 489676e.
+- Tests: `web/src/features/contacts/listParams.test.ts` (extended) and `ContactsPage.paging.test.tsx` (new).
+- Production: `web/src/components/Pagination.tsx` (+ `.module.css`), `features/contacts/listParams.ts`, `ContactsPage.tsx`.
+- The only removed line in the existing test files is the widened `import` in `listParams.test.ts`.
+- No `staleTime` anywhere in `web/src` (grep is empty).
+- No dependency changes.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 132/132 in 9 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+- **Stability:** the paging file passed 6/6 runs on its own and 3/3 inside the full suite. The stable ids plus `waitFor` fix for the AC-022 Back test holds without `staleTime`.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-021 | `shows Previous, Next and "Page 1 of 3" when 45 contacts do not fit on one page` | yes |
+| AC-022 | `requests the next page, keeps the search, updates the address and shows page 2 on Next`; `pushes a history entry when paging, so Back returns to the previous page`; `toSearchParams` `writes a page above 1` / `writes both the search and the page` | yes |
+| AC-023 | `requests the previous page and keeps the search on Previous`; `leaves out page from the address when Previous returns to page 1` | yes |
+| AC-024 | first page (Previous disabled, Next enabled); last page (Next disabled, Previous enabled); middle page (both enabled) | yes |
+| AC-025 | 20 contacts → no Pagination; 21 → `Page 1 of 2` (boundary); 1 → no Pagination | yes |
+| AC-027 | `listParams.test.ts`: page table (absent, `1`, `2`, `02`, `2147483647` accepted; `0`, `-1`, `2.5`, `abc`, `''`, ` 2`, `2 `, `+2`, `1e3`, `0x10`, `2147483648`, `99999999999` → 1), `MAX_PAGE`, search blank/trim, `toSearchParams`; page tests: 8 invalid address values send `page=1`, `Page 1 of 3` for `?page=1e3`, and a valid `?page=2` is sent | yes |
+
+**T-05 carry-forward mutants (re-run):** all three are now killed.
+- `setSearchParams(..., { replace: true })` for paging: fails 1 (the push/Back test).
+- `toSearchParams` never writing `page`: fails 5.
+- `Number(rawPage) || 1`: fails 11.
+
+**Mutation (scratch copy, 22 mutants, full suite):** 21 were killed:
+- **Page parse:** unanchored regex (fails 11); signed regex (fails 2); no `MAX_PAGE` (fails 3); `<` instead of `<=` (fails 1); no `>= 1` (fails 2); clamping instead of falling back to 1 (fails 3).
+- **When paging shows:** `>=` instead of `>` (fails 1); `floor` instead of `ceil` (fails 7); deciding by `items.length` (fails 10).
+- **Paging actions:** Next/Previous dropping `search` (fails 2); Previous going to 1 (fails 1); Next going +2 (fails 2).
+- **Disabled states:** `<` / `>` and never-disabled variants (fail 1 each).
+- **Pagination landmark:** unlabelled (fails 10); different text (fails 6).
+
+The one survivor is `page={data.page}` instead of `page={params.page}`. That's equivalent: the API echoes the requested `page` (spec 001 paging), and so does the handler. It's not a finding.
+
+**Findings:** none.
+
+**Notes:**
+- **Plan conformance.**
+  - The `Pagination` props match the plan (`page`, `totalPages`, `onPageChange`).
+  - It's a `nav` named `Pagination` with `Previous`/`Next` buttons using the native `disabled`, and the `Page {p} of {n}` text.
+  - Paging shows only when `totalCount > 20`, with `ceil(totalCount / 20)` pages.
+  - `readListParams` uses `/^\d+$/` and `1..MAX_PAGE`, exactly as plan § Address params says.
+  - Paging pushes through `setSearchParams` and keeps the search.
+- **Minimality.** No "This page is empty" state (T-08), and no Back-specific code; AC-026 is T-08's.
+- **Accessibility.** `Page X of Y` isn't a live region, so a screen-reader user who presses Next isn't told about the page change, except through the focus staying on the button. The spec doesn't require that, so it's noted for FINAL.
+
+**Commit:** no findings, so T-07 can be committed.
+
+## T-08: 2026-10-06: APPROVE
+
+**Scope reviewed:** the uncommitted working tree on top of f8e47dc.
+- Tests: `web/src/features/contacts/ContactsPage.paging.test.tsx` (+1 AC-026 guard, +4 AC-028 tests; additive only).
+- Production: `web/src/features/contacts/ContactsPage.tsx` (one new branch, after the two `totalCount === 0` branches).
+- No dependency changes.
+
+**Checks:**
+- `FRONTEND_TEST_CMD`: pass, 137/137 in 9 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- Web build: pass.
+- `prettier --check src`: clean.
+- Grep: `fetch(` appears only in `api/client.ts`, and there is no `console.`.
+- **Stability:** the paging file passed 4/4 runs on its own and 2/2 inside the full suite.
+
+**AC coverage:**
+| AC | Test(s) in `ContactsPage.paging.test.tsx` | Adequate? |
+|---|---|---|
+| AC-026 | `shows page 1 of the search, then the unfiltered page 1, on successive Back` (guard), plus T-07's `pushes a history entry when paging ...` | yes |
+| AC-028 | `shows "This page is empty." and a Go to first page button, not the other states`; `requests page 1 and shows the rows when Go to first page is clicked`; `shows "This page is empty." and not the no-match text when a search is set`; `keeps the search when Go to first page is clicked` | yes; see Nit 22 |
+
+**Carry-forward mutants:**
+- **`items.length` instead of `totalCount === 0`** (from T-04/T-06): now killed. In the no-match branch it fails 2, in the "No contacts yet." branch 4, and in both together 4.
+- **AC-026 Back across search and page:**
+  - The search submit using `replace` fails 3.
+  - Paging using `replace` fails 2.
+  - Removing the search box reset fails 5.
+  - The guard checks the rows, the box value and the address after each of two Backs: `?search=ada` page 2 → page 1 → unfiltered.
+
+**Mutation (scratch copy, 12 mutants, full suite):** 9 were killed. Besides the above:
+- the empty-page branch removed (fails 4);
+- "Go to first page" dropping the search (fails 1);
+- "Go to first page" going to `page - 1` (fails 2).
+
+Survivors:
+- "Go to first page" using `replace`: no AC asks for a push here. Note only.
+- The empty-page state also rendering a `Pagination` nav (Nit 22).
+- The empty-page state also rendering the count: the AC says nothing about it. Not a finding.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 22 | Nit | test-writer | web/src/features/contacts/ContactsPage.paging.test.tsx (first AC-028 test) | Plan rendering rules say exactly one state shows, with paging only under Results. The AC-011 and AC-016 tests assert there's no `Pagination` nav, but the AC-028 "not the other states" test doesn't, so a Pagination nav added to the empty-page branch survives. | Add `expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()`. |
+
+**Notes:**
+- **Branch order.** The new branch sits after both `totalCount === 0` branches and before Results, so it's effectively `items.length === 0 && totalCount > 0`. That matches plan rules 3 → 4 → 5. "Go to first page" reuses `handlePageChange(1)`, so it pushes, keeps the search and leaves `page` out of the address.
+- **Minimality.** Only the branch was added. AC-026 needed no production change, because T-05 and T-07 already push and the T-05 render-time reset restores the box.
+- **The list side (AC-005 to AC-028, AC-049) is complete.** Two Should-fix items from T-05 and T-06 are already closed, and no open findings remain on the list side apart from Nit 22.
+
+**Commit:** no Blocking findings, so T-08 can be committed. Nit 22 is optional.
+
+### T-08 re-check after incident (orchestrator, 2026-10-07)
+- **Incident:** while proving the Nit 22 guard, the test-writer mutated the real `ContactsPage.tsx` and then ran `git checkout` on it, discarding the approved, uncommitted empty-page branch. The implementer re-applied it; `git diff` shows only the 7-line `data && data.items.length === 0` branch, identical to the approved change.
+- **Nit 22:** closed. Verified by the orchestrator in a scratch copy: adding `<Pagination>` to the empty-page branch fails only the first AC-028 test (25/26 pass).
+- **Gates:** 137/137 tests, lint, typecheck, build, Prettier clean.
+- **Harness gap:** `path-guard.sh` only covers Edit/Write/MultiEdit/NotebookEdit; Bash edits and `git checkout`/`git restore` bypass role write-boundaries. Raised with the owner.
+- The reviewer's re-check run stalled before reporting; T-08's earlier APPROVE stands.
+
+## T-09: 2026-10-07: CHANGES_REQUESTED
+
+**Checks:** tests pass, 217/217 in 11 files · lint pass (oxlint; no .cs changes) · typecheck pass · web build pass · `prettier --check` on the 7 changed/new web files: clean · grep: no `console.`, no `fetch(` outside `api/client.ts`.
+**Stability:** `NewContactPage.validation.test.tsx` passed 3/3 runs on its own.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-029 | `shows the New contact heading, six labelled fields, Save and Cancel`; `marks First name as required and the other fields as optional`; `starts with every field empty and no errors`; unit `lists the fields in form order` | yes. The exact name `First name` kills a visible-marker-not-`aria-hidden` mutant (20 fail). See Nit 25 |
+| AC-030 | page: empty and spaces-only rows; unit: 3 blank rows + `validateContactField` | yes for the message. "SHALL NOT send" can't fail yet because `onSubmit` is a no-op (carry-forward to T-11) |
+| AC-031 | page: one row per field at max+1 (only that field errored, single message), padded max+1; unit: max, max+1, padded max per field | yes |
+| AC-032 | page: `ada@`, over-long invalid email; unit: the tasks.md email table plus `a@b c`, `a\t@b`, two-`@` over-long | yes |
+| AC-033 | page: three errors at once; unit: all six at once | yes (`break` after the first error fails 3) |
+| AC-034 (rules) | unit: each field at exactly max, all optional blank, whitespace-only optional fields, blank email | yes at the rules level; the page half is T-11 |
+| AC-035 | `marks each errored field aria-invalid ...`; `toHaveAccessibleDescription` in AC-030 to AC-033 rows | yes (`aria-invalid` removed fails 1, `aria-describedby` removed fails 11) |
+| AC-047 | Cancel with typed input, from an errored form, from an untouched form | yes (Cancel to `/` fails 1) |
+| AC-048 | `shows an empty form with no errors when the page is opened again after cancelling` | yes |
+
+**Client/server parity** (against `ContactInput.cs`): the limits 100/100/254/50/200/4000 match. Both sides trim before checking, a blank first name gives `Required.`, and optional blanks are skipped. `isValidEmail` matches `IsValidEmail` term by term. Email precedence matches: the server writes the length error and then overwrites it with the invalid-email message, and the client returns the invalid-email message first (`email_len_first` mutant fails 4). Remaining difference: JS `\s`/`trim()` vs .NET `char.IsWhiteSpace`/`Trim()` disagree on U+0085 and U+FEFF. This is an accepted plan risk (plan "Risks"), so it isn't a finding.
+
+**Mutation (scratch copy, 24 mutants, the two T-09 files):** 16 were killed. Killed: each `isValidEmail` term, including `\s` narrowed to a space; no trim; Required for every blank field; `>=` vs `>`; email length checked first; first error only; no `aria-invalid`, `aria-describedby` or `aria-required`; visible marker not `aria-hidden`; `required` attribute added; `maxLength` added; Cancel target changed.
+Survivors:
+- `if (isSaving) return` removed, `disabled={isSaving}` removed, `Saving…` label removed. All three survive because the prop is always `false` (Finding 23).
+- `onSubmit` called even with errors. That's expected while `onSubmit` is a no-op. **Carry to T-11:** this mutant must die once the form POSTs.
+- `noValidate` removed. It's equivalent in jsdom with `type="text"` and no constraint attributes (Nit 26).
+- Notes as `<input>` instead of `<textarea>` (Nit 25).
+- `' *'` marker removed (Nit 25).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 23 | Blocking | implementer | web/src/features/contacts/ContactForm.tsx:15,40,46,93-94; NewContactPage.tsx:8 | The `isSaving` behaviour (submit guard, `disabled`, `Saving…` label) is AC-039, which T-11 owns. No T-09 test demands it, and all three mutants survive (0 fails). The tasks.md "Minimal implementation" rule and constitution §2 forbid it. It also makes T-11 RED weaker: once `isPending` is wired, the ContactForm half of AC-039 would pass without ever having failed. This is the same precedent as spec 002 T-02 (forbidden early items with 0 fails were Blocking). `serverErrors` was correctly left out, and `isSaving` should be treated the same way. | Remove the `isSaving` prop, the `if (isSaving) return` guard, `disabled={isSaving}` and the ternary label (render `Save`), and drop `isSaving={false}` from `NewContactPage`. Tests stay untouched. T-11 adds it back with AC-039 failing first. |
+| 24 | Nit | implementer | web/src/features/contacts/ContactForm.tsx:82 | Email is `type="text"`. The plan's risk note ("`type="email"` with `noValidate` avoids browser bubbles") assumes an email input, which also gives the email keyboard on mobile. No AC pins it. | Optionally use `type="email"` for the Email field (its role is still `textbox`). Otherwise leave it and note it in the plan. |
+| 25 | Nit | test-writer | web/src/features/contacts/NewContactPage.validation.test.tsx (AC-029 tests) | Two plan details are unpinned: Notes as a `textarea` (exact UI table) and the visible `aria-hidden` required marker. Mutants that change Notes to `<input>` or remove the `' *'` marker both pass. | Optionally assert `field('Notes')` is a `TEXTAREA` (or has the `multiline` semantics), and that the First name label contains a visible `*` that isn't part of its name. |
+| 26 | Nit | test-writer | NewContactPage.validation.test.tsx | tasks.md "Done when" requires `noValidate`, but no test checks it, and removing it passes (equivalent in jsdom today). | Optionally assert that the form element (e.g. `field('First name').closest('form')`) has the `novalidate` attribute. |
+
+**Notes:**
+- **Error ids.** They're `contact-{field}-error`, while the plan table says `{field}-error`. The tests can't observe this (they go through the accessible description), and the ids are unique and don't clash with `contact-search-error`. Not a finding.
+- **Messages.** `REQUIRED` and `INVALID_EMAIL` were added to `lib/validationMessages.ts`, matching the plan signatures. The field error reuses `components/FieldError.module.css`, which closes the spirit of Nit 20.
+- **`serverErrors` omitted (question 2).** Correct: tasks.md says "No server-error display before T-13". Add it at T-13 with AC-040 failing first. The T-01 follow-up (a 400 with empty `errors` is `unexpected`) only matters at T-13/T-14.
+- **Re-review scope after the fix.** Confirm the 4 `isSaving` edits are gone, the tests are byte-identical, and 217/217 still pass.
+
+**Commit:** not yet. Finding 23 is Blocking, so T-09 shouldn't be committed until it's fixed.
+
+### T-09 re-review after fix cycle 1: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 220/220 (217 + 3 new AC-029 guards) · lint pass · typecheck pass · `prettier --check` on `features/contacts`: clean.
+
+- **Finding 23: closed.** `grep isSaving|Saving|disabled` over `ContactForm.tsx` and `NewContactPage.tsx` finds nothing. The page now renders `<ContactForm onSubmit={() => {}} cancelTo="/contacts" />`. The props are `onSubmit` and `cancelTo` only, and `isSaving` comes back at T-11 with AC-039 failing first.
+- **Nits 25 and 26: closed.** I re-ran the earlier survivors on a fresh scratch copy (`diff -r` showed it identical to the working tree):
+  - Notes as `<input>` fails 1;
+  - `' *'` marker removed fails 1;
+  - `noValidate` removed fails 1.
+  The new tests use `tagName`, `labels` and `container.querySelector('form')`. That's acceptable, because these attributes have no role or label to query by (conventions allow it when no accessible alternative exists).
+- **Nit 24** (`type="email"`): skipped as optional, which is accepted.
+- **Carry to T-11:** "always call `onSubmit`" still survives (83/83), as expected while `onSubmit` is a no-op. It must die once the form POSTs.
+
+**Commit:** T-09 can be committed.
+
+## T-10: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 231/231 · lint pass · typecheck pass · `prettier --check` on the 2 changed files: clean · the validation file passed 3/3 runs on its own (36/36).
+
+**AC coverage** (`NewContactPage.validation.test.tsx`):
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-036 (client) | `moves focus to Email when only Email and Company have errors`; `moves focus to First name when First name and Notes have errors`; `skips an earlier valid field ...`; `moves focus again on a second failed submit` | yes |
+| AC-037 (client) | `removes the First name error and aria-invalid when typing A`; `keeps the error while the edited value is still invalid` (guard); `removes an Email error once the email becomes valid`; `shows an error live on a field that was valid at submit ...`; `shows a length error live ...`; two "not before any submit" guards | yes |
+
+**Mutation (scratch copy, 7 mutants):** all 7 were killed.
+- no focus: fails 4
+- focus the last invalid field: fails 3
+- always focus First name: fails 3
+- live re-check without the `hasFailedSubmit` gate: fails 2 (killed by the guards)
+- flag never set: fails 5
+- live re-check that only clears errors: fails 3
+- re-checking the stale value: fails 5
+
+Re-checking the whole form on each change is equivalent, because every field was validated at submit and the others haven't changed. I didn't raise it.
+
+**Probe (focus timing):** a focus listener on First name, then Save on an empty form. At the moment focus lands, `aria-invalid` is null, `aria-describedby` is null, and `contact-firstName-error` isn't in the DOM. After the commit, both attributes are set. The cause is that `focus()` runs inside the submit handler, before React commits `setErrors`.
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 27 | Should-fix | test-writer, then implementer | web/src/features/contacts/ContactForm.tsx:60 | **Focus lands before the error is rendered** (probe above). On the first failed submit, the focused field has no `aria-invalid` and no description yet. Whether a screen reader's focus announcement includes "invalid, Required." then depends on its timing, which is weaker than AC-035's "the error is part of the field's accessible description". Separately, `getElementById` rebuilds the id string `contact-${field}` (lines 60 and 69, two places to keep in sync) and searches the whole document. The conventions say nothing about refs. The plan already requires an effect for server-error focus at T-13 ("in an effect once the error arrives"), so T-13 will need a post-commit mechanism anyway. | **Test-writer:** add an AC-036 row that records `aria-invalid` and the accessible description inside a `focus` listener on the target field, and expects them to be set. It fails today. **Implementer:** keep a `Record<ContactFormField, HTMLElement \| null>` of refs (a callback ref per field), and focus in a `useEffect` keyed on a submit-attempt counter (state incremented on each blocked submit, so a repeat submit with the same errors refocuses). T-13 can reuse the same effect for server errors. Can be done now or at T-13; if it's deferred, carry it to T-13 explicitly. |
+
+**Notes:**
+- **On `getElementById` vs refs:** it's correct today, because the ids are unique and there's only one form per page. It isn't a convention violation on its own. The problems are the commit timing and the duplicated id string (Finding 27). The fix for the timing problem uses refs anyway.
+- **Minimality:** clean. Only the flag, `handleChange` and focus were added. Server-error clearing and the T-11 POST wiring weren't started.
+- **`hasFailedSubmit` stays `true`** for the life of the form. That matches the plan ("after the first failed submit").
+- `setErrors` keeps `[field]: undefined` keys. Every read is a truthiness check, so this is harmless. T-13 may want `Object.values(...).some(Boolean)` if it counts errors.
+- **Carry to T-11:** the "always call `onSubmit`" mutant must now die.
+
+**Commit:** no Blocking findings, so T-10 can be committed. Finding 27 can be fixed in this task or carried to T-13, which needs an effect for server-error focus anyway.
+
+## T-11: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 245/245 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 4/4 runs on its own · no `console.`, no `fetch(` outside `api/client.ts`.
+
+**T-10 Finding 27:** closed before commit bb0e425. Focus now goes through callback refs in a `useEffect` keyed on a fresh `focusRequest` object, and there's no `getElementById`.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-034 | `NewContactPage.test.tsx`: only First name gives one POST with five `null`s and no error text; every field at exact max gives one POST with the exact body and no error. Rules: the T-09 at-max rows and `leaves values at their maximum lengths unchanged` | yes |
+| AC-038 | `sends one POST with the trimmed values of all six fields` (exact body, path, still 1 after settling); the 2 "sends nothing when invalid" guards; `toCreateContactRequest` unit tests (trim, blank→null, inner whitespace) | yes (see Nit 28) |
+| AC-039 | `shows a disabled Saving… button ...`; second click/double-click gives no 2nd POST; Enter in First name gives no 2nd POST; `ignores a form submit event that reaches the handler while saving` | yes |
+
+**Carry-forwards confirmed (scratch copy, whole `features/contacts` folder):**
+- **always-call-`onSubmit`:** now fails 17.
+- **`isSaving` mutants:**
+  - guard removed: fails 1, only the `fireEvent.submit` test;
+  - `disabled` removed: fails 1;
+  - `Saving…` label removed: fails 4;
+  - guard and `disabled` both removed: fails 4;
+  - the page passing `isSaving={false}`: fails 4.
+- **`fireEvent.submit` is the right tool for the guard.** Implicit submission (Enter) and clicks both stop at a disabled submit button, in browsers as well as jsdom. So the handler guard the plan prescribes ("ignored in the handler, as well as by disabling") can only be reached by dispatching submit directly. The form has no accessible name, so `container.querySelector('form')` is acceptable under the "no accessible alternative" clause.
+
+**Other mutants:**
+- Killed:
+  - firstName not trimmed: fails 3
+  - blank optional fields sent as `''`: fails 2
+  - optional fields not trimmed: fails 3
+  - raw form values sent: fails 2
+  - `mutate` called twice: fails 7
+  - wrong path `/api/contacts/`: fails 1
+- Survived: firstName blank sent as `null` (Nit 28).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 28 | Nit | test-writer | web/src/features/contacts/contactFormRules.test.ts (`keeps inner whitespace and never turns firstName into null`) | The test name claims "never null", but it only uses a non-blank first name, so a `firstName.trim() \|\| null` mutant passes. It can't happen through the page, because validation blocks a blank first name, so this is about the unit contract only (plan: "`firstName` is the trimmed string"). | Add `expect(toCreateContactRequest(blankForm({ firstName: '   ' })).firstName).toBe('')`, or rename the test. |
+
+**Notes:**
+- **Minimality:** clean. `useCreateContact` matches the plan signature and has no `onSuccess`/`removeQueries` (T-12, AC-046). There's no navigation after success (T-12), no server-error display (T-13), and no form-level message (T-14).
+- **`settle()`** is a fixed 30 ms wait used only before "no extra POST" assertions. It's acceptable for negative checks, and it was stable over 4 runs.
+- **After a successful save,** the form stays filled and Save comes back, because the T-12 navigation isn't there yet. That's expected at this stage.
+
+**Commit:** no Blocking findings, so T-11 can be committed.
+
+## T-12: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 259/259 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 4/4 runs on its own (23/23) · no `console.`.
+
+**AC coverage** (`NewContactPage.test.tsx`):
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-045 | `returns to /contacts with no search or page ...` (starts from `?search=zed&page=2`, and `findConfirmation` checks `role="status"`); `names a first-name-only contact by first name alone`; `shows no confirmation ... before any create`; `stays on the create page ... while the POST is held`; the well-formed-state harness proof plus 8 malformed-state rows | yes |
+| AC-046 | `shows the loading state, not a stale table, while the second GET is held, then the new row` (no table and no Babbage while held; then both rows; exactly 2 GETs) | yes |
+
+**Carry-forwards confirmed (scratch copy, `features/contacts`):**
+- `invalidateQueries` instead of `removeQueries`: fails 1.
+- Wrong key `['contact']`: fails 1. This closes the query-key prefix check carried from T-03.
+- `onSuccess` removed: fails 1.
+- Unguarded cast (`(state as …)?.createdContactName ?? null`): fails 2.
+- Guard without the `typeof name === 'string'` check: fails 2.
+
+**Other mutants:** all killed except one.
+- Killed:
+  - `navigate(-1)`: fails 4
+  - navigating to `/contacts?page=2`: fails 1
+  - first name only in the message: fails 3
+  - no `role="status"`: fails 2
+  - confirmation only shown once data exists: fails 1
+- Survived: `navigate(..., { replace: true })`. No AC says push or replace, so I note it rather than raise a finding.
+
+**Judgements requested:**
+- **Confirmation kept in history state.** Accepted. Plan risk note 325 accepts that it reappears on reload or Back, and search or paging pushes entries without the state, so it goes away as the owner moves on. It isn't a finding.
+- **Test-local `GoToListWithState` instead of extending `renderWithProviders`.** Accepted. Arbitrary `unknown` state is only needed here, so keeping it local avoids widening the shared helper's API. The well-formed row proves the helper actually delivers state, so the 8 malformed rows aren't vacuous: the unguarded and no-string-check mutants are killed by them. If spec 005 needs routed state too, move it to `web/src/test/`.
+
+**Findings:** none.
+
+**Notes:**
+- **Order of effects.** The hook-level `onSuccess` (`removeQueries`) runs before the `mutate`-level `onSuccess` (`navigate`), and it's synchronous. So the list mounts with no cache entry, as the plan intends. The AC-046 test proves this.
+- **`findConfirmation` uses `closest('[role="status"]')`.** That's because `Loading contacts…` is also a `status`, so `getByRole('status', { name })` would be ambiguous: a status region gets no accessible name from its content. This is acceptable.
+- **Accessibility follow-up (not a finding):** the `status` element is inserted already filled in, as part of a route change. Some screen readers don't announce a live region that appears with its content. The AC only requires role `status`. If spec 005 adds more one-off notices, consider a persistent live region in `AppLayout`.
+- **Minimality:** clean. There's no server-error display (T-13) and no form-level message (T-14).
+
+**Commit:** no Blocking findings, so T-12 can be committed.
+
+## T-13: 2026-10-07: CHANGES_REQUESTED
+
+**Checks:** tests pass, 279/279 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 3/3 runs on its own (36/36) · no `SAVE_FAILED`/"couldn't be saved" in production code.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-040 | unit: known keys, two messages joined; page: `shows each 400 message verbatim under its field and keeps everything typed`, `re-enables Save after a 400`, `known-key ... and an unknown-key ... at once`, `replaces the old server errors when a resubmit is rejected differently` | yes |
+| AC-041 | unit: unknown key verbatim (all messages), split, no case-insensitive or prefix match; page: unknown key in an `alert` with values kept | yes |
+| AC-042 | unit: conflict ignores the title; page: duplicate message under Email, `aria-invalid`, `Conflict!` absent, values kept, no alert | yes |
+| AC-036 (server) | 409 focuses Email; 400 on company and lastName focuses Last name; error present at focus time | **no:** a client-blocked submit after a server error doesn't focus the first field showing an error (Finding 29) |
+| AC-037 (server) | duplicate removed when Email is edited to a valid address; client rule takes over; editing one field keeps the others; unedited field keeps its error | yes |
+
+**Mutation (scratch copy, `features/contacts`, 15 mutants):** 13 were killed.
+- Killed:
+  - join with `, `: fails 1
+  - first message only: fails 1
+  - unknown keys dropped: fails 5
+  - only the first unknown message: fails 1
+  - case-insensitive key match: fails 1
+  - 409 title used: fails 6
+  - no dismiss on edit: fails 3
+  - `dismissed` never reset: fails 12
+  - no server focus: fails 3
+  - focus the last server field: fails 1
+  - `hasFailedSubmit` not set by server errors: fails 1
+  - `role="alert"` removed: fails 2
+  - imperative focus during render instead of `focusRequest`: fails 1
+- Survived: `errors[field] ?? serverError` (client first) and removing the `useMemo`. See the judgements below.
+
+**Probe (scratch copy):**
+1. A 400 `{ lastName: ['Server last.'], nickname: ['Odd.'] }` arrives. The owner then pastes 51 characters into Phone and presses Save. The result: focus is on `contact-phone`, while Last name still has `aria-invalid="true"` and the description `Server last.`, and the alert `Odd.` is still shown.
+2. A 400 `{ a: ['Same.'], b: ['Same.'] }` renders both paragraphs, but React logs "Encountered two children with the same key".
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 29 | Blocking | test-writer, then implementer | web/src/features/contacts/ContactForm.tsx:83-95 (`handleSubmit`), 102-103 | **Stale server errors survive a client-blocked submit.** Server errors only clear when `mutate()` resets the mutation error, but a submit that client validation blocks never calls `mutate()`. After probe 1, Last name (above Phone) still shows a server error, yet focus goes to Phone. That breaks AC-036 ("a submit blocked by client-side or server-side field errors ... focus the first field, in form order, that shows an error"). The form-level alert from the last attempt also stays. The plan says "Submitting clears all server errors from the previous attempt", and AC-044 has the same intent. | **Test-writer:** add a page row with the probe 1 sequence (server error on Last name, then a client error on Phone, then Save). Expect Last name's server error and the alert to be gone and focus on Phone, or, if the owner prefers keeping them, focus on Last name. Recommended: clearing, which is consistent with the plan and AC-044. **Implementer:** on every submit, hide the previous attempt's server errors before client validation (for example `setDismissed(new Set(CONTACT_FORM_FIELDS))` plus a flag that hides `form`, both reset when a new `serverErrors` arrives). Then the client-first precedence question below becomes moot. |
+| 30 | Should-fix | implementer | web/src/features/contacts/ContactForm.tsx:141 | `key={message}`: two unknown keys with the same message (probe 2) give duplicate React keys and a React `console.error` warning. Both still render. | Key by index (`key={index}`), or by `${index}-${message}`. The list is static per attempt. |
+
+**Judgements requested:**
+- **Render-time reaction to new `serverErrors`.** It's sound. It's React's documented "adjust state when a prop changes" pattern: the guard compares identity, so it settles after one extra render. `setFocusRequest` is set during the same render pass that shows the server errors, so the effect focuses after that commit. The AC-036 "error present at focus time" test proves it, and the imperative-focus-during-render mutant fails 1. It relies on `serverErrors` being identity-stable between parent renders, which is the `useMemo` in `NewContactPage`. The no-memo mutant survives only because nothing re-renders the parent while an error is shown in today's tests. Without the memo, any parent re-render would reset `dismissed` and steal focus, so keep it. It's justified, not dead code. If spec 005's edit page re-renders its parent more often, add a test then.
+- **Server errors before client errors until the field is edited.** This matches the plan ("Editing a field also hides that field's server error ... its client rules then decide what shows"). The client-first mutant is equivalent today: after a mutate-path submit, `errors` is `{}`, and editing dismisses the server error. Only the stale case in Finding 29 can produce both on one field. Once 29 is fixed, the order stays unobservable.
+- **No T-14 leakage.** `unexpected` and non-`ApiError` values map to `{ fields: {}, form: [] }`. There's no `SAVE_FAILED_MESSAGE`. The unit file has no `unexpected` rows, as tasks.md says. One knock-on of the current design: an unexpected failure sets `hasFailedSubmit`, because `serverErrors` is non-null. That's consistent with the plan's "failed submit (client or server)".
+
+**Notes:**
+- **Minimality:** clean, apart from the comment on `toContactFormErrors` that points at T-14.
+- **The alert** reuses `FieldError.module.css`, which is fine.
+
+**Commit:** not yet. Finding 29 is Blocking.
+
+### T-13 re-review after fix cycle 1: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 282/282 (279 + test A, the duplicate-message test, and guard test B) · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 3/3 runs on its own (39/39).
+
+- **Finding 29: closed.** I re-ran probe 1 on a fresh scratch copy (`diff -r` identical to the working tree).
+  - After the client-blocked submit: focus is on `contact-phone`, Last name has no `aria-invalid` and no description, and there's no alert.
+  - Extension: clearing Phone and resubmitting brings back `Server last.` and the alert `Odd.`, and focuses Last name. So hiding is per-attempt, and a new `serverErrors` identity shows errors again.
+  - Following the plan ("Submitting clears all server errors") without asking the owner was correct.
+- **Finding 30: closed.** Messages are keyed by index. Reverting to `key={message}` fails 1, the new `console.error` spy test.
+- **Mutants on the fix (all killed):**
+  - `setServerHidden(true)` removed from submit: fails 1
+  - never un-hidden on new errors: fails 16
+  - alert ignores `serverHidden`: fails 1
+  - fields ignore `serverHidden`: fails 1
+  - hide only on a client-valid submit: fails 1
+- **Survivors from the first review:**
+  - **Client-first precedence** (242/242): still equivalent, as predicted. A client error only exists after a client-blocked submit, which now hides server errors, or after an edit, which dismisses that field's server error. A mutate-path submit resets `errors` to `{}`. So the two can never both be visible on one field.
+  - **No `useMemo`** (242/242): unchanged and accepted. It's load-bearing for any parent re-render; see the first review.
+- **Minimality:** still clean. There's no T-14 save-failed message.
+
+**Commit:** no open Blocking or Should-fix findings, so T-13 can be committed.
+
+## T-14: 2026-10-07: APPROVE
+
+**Checks:** tests pass, 301/301 · lint pass · typecheck pass · `prettier --check src/features/contacts`: clean · `NewContactPage.test.tsx` passed 3/3 runs on its own (48/48) · no `console.` outside tests.
+
+**AC coverage:**
+| AC | Test(s) | Adequate? |
+|---|---|---|
+| AC-043 | page, 5 rows (500 problem with secret detail, network error, 400 without `errors`, 400 with `errors: {}`, 400 with `{ firstName: [] }`): alert text, no title or detail leak, values kept, Save enabled, page and path unchanged, one POST, no field marked invalid. Unit: `unexpected` rows, plain `Error`/string/`null`/`undefined`/look-alike object rows, no title or detail leak, exported text | yes |
+| AC-044 | 409, then a held resubmit: no duplicate message or alert while pending, then only the Phone error (guard). 500, then a held resubmit: alert hidden while pending, then back. 500, then success: no alert and the confirmation shows. 500, then a client-blocked resubmit: alert hidden, one POST | yes |
+
+**T-01 carry-forward: confirmed.** A 400 with `errors: {}` and a 400 with `{ firstName: [] }` both show `The contact couldn't be saved. Try again.` (page rows 4 and 5). Each is pinned against the client classifier:
+- removing `lists.length > 0` in `isFieldErrors`: fails 2;
+- removing `messages.length > 0`: fails 2.
+Without these, the response would be classed as `validation` and nothing would show.
+
+**`serverHidden` covers the alert on a blocked submit: confirmed.** The `hides the save-failed alert when the next submit is blocked by client validation` test, plus mutants:
+- the alert ignoring `serverHidden`: fails 2;
+- no `setServerHidden(true)` on submit: fails 2.
+
+**Mutation (scratch copy, full `src`, 9 mutants):** all killed. Besides the four above:
+- no `else` branch (`unexpected` shows nothing): fails 11
+- a non-`ApiError` mapping to empty: fails 5
+- SAVE_FAILED pushed for every kind: fails 8
+- SAVE_FAILED added to a conflict: fails 2
+- message text changed: fails 17
+
+**Findings:** none.
+
+**Notes:**
+- **Minimality:** the only production change is `contactFormErrors.ts`. No form or page changes were needed, because T-13's `serverErrors`, alert and `serverHidden` already carry the new message.
+- **For the FINAL smoke (NFR-006):** jsdom doesn't blur a focused button when it becomes disabled. Browsers do, so after an unexpected failure focus may sit on `body` while the alert is announced. No AC covers focus for a form-level error. Check it by hand during the smoke and note the result; it isn't a finding.
+- **This completes the form side (T-09 to T-14).** Open Nits carried to FINAL: 24 (`type="email"`, skipped) and 28 (blank firstName → `''` unit row, deferred in tasks.md).
+
+**Commit:** no Blocking findings, so T-14 can be committed.
+
+## FINAL: 2026-10-07: APPROVE
+
+**Scope reviewed:** the whole spec, `main` 85749c8..b37c8d5 on `feat/004-web-contacts-list-create` (14 commits, 58 files). The working tree was clean at the start.
+
+**Checks (re-run by the reviewer):**
+- `TEST_CMD`: backend 649/649, web 301/301 in 13 files.
+- `LINT_CMD`: pass (dotnet format and oxlint).
+- `TYPECHECK_CMD`: pass.
+- `BUILD_CMD`: pass (dotnet build, then vite build, with 303.9 kB JS).
+- `npx prettier --check src index.html`: clean.
+- `npm audit --omit=dev`: 0 vulnerabilities.
+
+**FINAL inspection (NFR-001, NFR-002, NFR-003, NFR-005):**
+- **`fetch(`:** only at `web/src/api/client.ts:113`. Every other hit is `refetch()`.
+- **`console.`:** no hits in `web/src` outside tests. The one test hit is `vi.spyOn(console, 'error')` in `NewContactPage.test.tsx:714`. It asserts there are no React duplicate-key warnings, so it isn't a mock of a module or hook.
+- **Test-id or class queries:** none. There are no `ByTestId`, `data-testid` or class selectors.
+- **Structural queries:** five, each accepted in its task review because no role, label or text exists for these attributes:
+  - `tagName` for the textarea (T-09);
+  - `labels[0].querySelectorAll('[aria-hidden]')` for the required marker (T-09);
+  - `container.querySelector('form')` for `novalidate` (T-09) and for the `fireEvent.submit` guard (T-11);
+  - `closest('[role="status"]')`, because a `status` region gets no name from its content (T-12).
+- **`vi.mock`, `vi.doMock`, `vi.stubGlobal`:** none. HTTP is mocked only through MSW, with `onUnhandledRequest: 'error'`, and error bodies come from `test/msw/problems.ts` as problem+json.
+- **No skipped tests:** there is no `.skip`, `.only`, `.todo`, `xit` or `xdescribe`.
+- **Dependencies:** the `web/package.json` diff adds only `react-router` ^8.4.0 (ADR-0010). The lockfile adds only `react-router`, `cookie-es` and `@remix-run/route-pattern`.
+- **Secrets:** none. There are no password, token or API-key strings, and the `ApiError` message is fixed per status (NFR-005).
+
+**Traceability (both directions, scripted over every `it`/`test` title in `web/src`):** all 49 ACs map to at least one test whose name carries the ID. Per-file counts:
+
+| AC | Test files (count) | AC | Test files (count) |
+|---|---|---|---|
+| 001-004 | App (1, 2, 1, 1) | 027 | paging 3, listParams 9 |
+| 005 | ContactsPage 1 | 028 | paging 4 |
+| 006 | ContactsPage 4, contactName 2 | 029 | validation 6, contactFormRules 1 |
+| 007 | ContactsPage 2 | 030 | validation 2, rules 2 |
+| 008 | ContactsPage 2 | 031 | validation 3, rules 7 |
+| 009 | ContactsPage 2, client 5 | 032 | validation 2, rules 7 |
+| 010 | ContactsPage 2 | 033 | validation 1, rules 1 |
+| 011 | ContactsPage 1 | 034 | NewContactPage 2, rules 6 |
+| 012 | ContactsPage 2 | 035 | validation 2 |
+| 013 | search 4 | 036 | NewContactPage 5, validation 5 |
+| 014 | search 1 | 037 | NewContactPage 4, validation 7 |
+| 015 | search 1 | 038 | NewContactPage 3, rules 3 |
+| 016 | search 2 | 039 | NewContactPage 4 |
+| 017 | search 1 | 040 | NewContactPage 6, contactFormErrors 3, client 2 |
+| 018 | search 5 | 041 | NewContactPage 3, contactFormErrors 3 |
+| 019 | search 3 | 042 | NewContactPage 1, contactFormErrors 2, client 3 |
+| 020 | search 1 | 043 | NewContactPage 1 (5-row `it.each`), contactFormErrors 4, client 6 |
+| 021 | paging 1 | 044 | NewContactPage 4 |
+| 022 | paging 2, listParams 2 | 045 | NewContactPage 6 |
+| 023 | paging 2 | 046 | NewContactPage 1 |
+| 024 | paging 3 | 047 | validation 3 |
+| 025 | paging 3 | 048 | validation 1 |
+| 026 | paging 1 | 049 | search 4, listParams 5 |
+
+| NFR | Coverage |
+|---|---|
+| NFR-001 | Inspection, see above. Every page test renders `<App />` through `renderWithProviders`. |
+| NFR-002 | Inspection, see above. |
+| NFR-003 | `client.test.ts` (2 tests) plus the grep. |
+| NFR-004 | `App.test.tsx` `no longer shows the Vite starter content` plus the gates. |
+| NFR-005 | `client.test.ts` (1 test) plus the grep. |
+| NFR-006 | The smoke below; manual. |
+
+Only 2 tests carry no AC tag: `renderWithProviders.test.tsx` and `smoke.test.tsx`. Both are utility tests, which is acceptable. No test carries an ID that isn't in the spec.
+
+**Traceability table in tasks.md vs reality:** every listed file exists, and no entry is stale. It's incomplete in four places (Finding 33, documenter):
+- AC-022 is also in `listParams.test.ts` (T-07, `toSearchParams`).
+- AC-029 and AC-033 are also in `contactFormRules.test.ts` (T-09).
+- NFR-004 is also `App.test.tsx` (T-02).
+- The header says "test names filled in during build", but no names were filled in.
+
+**Cross-task inspection:**
+- **Dead code and starter leftovers:** none in `web/src` or `index.html`. Every exported symbol is used, or is a plan-prescribed public type (`ApiErrorKind`, `ProblemDetails`, `ListAddress`, `contactKeys`). `smoke.test.tsx` stays, as the plan says. Two starter leftovers remain outside `src`, and both are tracked:
+  - `web/README.md` is still the Vite template README (plan "Doc drift", documenter).
+  - `public/favicon.svg` is the Vite logo (see open items).
+- **CSS modules:** all 5 modules and all 10 classes are used. `.message` is used 6 times and `.fieldError` 3 times. No global class names remain (T-06 Nit 20 is closed).
+- **Duplicated constants:**
+  - `MAX_SEARCH_LENGTH` and `maxLengthMessage` are shared by the submit and address checks.
+  - The ADR-0006 texts live once, in `lib/validationMessages.ts`.
+  - `CONTACTS_PAGE_SIZE` is defined once.
+  - Email's 254 in `CONTACT_FIELD_MAX` is a separate rule, not a duplicate.
+  - The route strings `'/contacts'` and `'/contacts/new'` are literals in 5 files. That's acceptable at this size; spec 005 can extract them if detail routes arrive.
+- **`FieldError` style:** consistent for field-level errors. The search box and all six form fields render `<p id=... className={fieldError}>` under the control, with matching `aria-invalid` and `aria-describedby`. Two divergences, both cosmetic (Nit 32):
+  - The form-level alert puts the class on a `<div role="alert">`, so its inner `<p>`s keep the browser's default 1em margins.
+  - The list's load-error alert uses `.message` and isn't red.
+- **Id and `aria-describedby` uniqueness:** probed in scratch.
+  - The list page renders exactly one id, `contact-search`, plus `contact-search-error` while the error shows.
+  - The create page renders `contact-{field}` and `contact-{field}-error`.
+  - There are no collisions within a page or across the two pages. `aria-describedby` and the error `<p>` are gated on the same `error` value, so the attribute never points at a missing id.
+- **Confirmation lifetime (probe):** after a create, submitting a search removes the confirmation, because `setSearchParams` pushes an entry without state. This matches the plan risk note.
+- **Cancel while saving (probe):** this is a spec gap, not a defect (Finding 31). Flow: Save with the POST held, then `Cancel` (still enabled), which lands on `/contacts` and shows the pre-create list (1 GET). Then the POST is released.
+  - The contact is created, but there's no confirmation and the list still lacks it.
+  - The hook-level `removeQueries` runs, but the mounted list observer keeps its data until the next navigation (the header link gives GET 2 and shows the contact).
+  - No AC covers it: AC-047 is about not *sending*, and here the request was already sent.
+
+**NFR-006 smoke against the real API.** This used a throwaway DB, and the developer's `src/MicroCrm.Api/microcrm.db` MD5 was `a1d7c8be…` before and after.
+```
+ConnectionStrings__MicroCrm="Data Source=<scratchpad>/smoke.db" dotnet run --project src/MicroCrm.Api --urls http://localhost:5080   # migrations applied on start
+npm --prefix web run dev                                                   # Vite on :5173, /api proxied to :5080
+B=http://localhost:5173; E=smoke-1791383791@example.com
+curl -X POST $B/api/contacts -H 'Content-Type: application/json' -d '{"firstName":"Ada","lastName":"Lovelace","email":"'$E'",...null}'
+  -> 201, Location /api/contacts/01a116cb-…, body echoes the contact (camelCase, nulls present)
+curl "$B/api/contacts?search=$E&page=1&pageSize=20"
+  -> 200 {"items":[{…Ada Lovelace…}],"page":1,"pageSize":20,"totalCount":1}
+curl -X POST … same email
+  -> 409, Content-Type application/problem+json, title "A contact with this email already exists."
+curl -X POST … firstName "  ", lastName 101, email "x@", phone 51, company 201, notes 4001 chars
+  -> 400 application/problem+json, errors keys exactly firstName, lastName, email, phone, company, notes
+     (the 6 form field names); messages "Required.", "Must be 100 characters or fewer.",
+     "Must be a valid email address.", "Must be 50 …", "Must be 200 …", "Must be 4000 …" (identical to the client's text)
+curl "$B/api/contacts?search=<254 a>" -> 200;  "<255 a>" -> 400 errors.search ["Must be 254 characters or fewer."]  (confirms AC-018/AC-049 rationale)
+curl $B/  $B/contacts  $B/contacts/new  "$B/contacts?search=ada&page=2"  $B/nope
+  -> each 200 text/html, index.html (<div id="root">, <title>MicroCRM)  (deep links work in dev)
+curl $B/src/main.tsx, $B/src/features/contacts/ContactsPage.tsx -> 200 (the app compiles in dev)
+```
+Both servers were stopped (killed by PID on :5080 and :5173), and `smoke.db` was deleted.
+
+**Pending the owner's manual check in a browser.** These steps were NOT done by the reviewer:
+1. Open `/`. The address becomes `/contacts`, and the list renders.
+2. Create a contact with a unique email. You land on the list and see `Contact "… …" created.`.
+3. Search for it by email. It's listed.
+4. Create another contact with the same email. `A contact with this email already exists.` shows under Email, Email is marked invalid, focus is on Email, and the typed values are kept.
+5. Reload a `/contacts?search=…&page=2` address. The box and page are restored. Then use Back across a search and a page change.
+6. Simulate an unexpected failure (stop the API, then Save). Note where focus lands once Save re-enables (the T-14 note: jsdom can't show the blur of a disabled button) and whether the alert is announced.
+7. Optional, with a screen reader: whether the post-create `status` is announced on the route change (see the open items).
+
+**Findings:**
+| # | Severity | Owner | Location | Issue | Expected fix |
+|---|---|---|---|---|---|
+| 31 | Nit | follow-up spec (owner decision) | web/src/features/contacts/ContactForm.tsx:154, NewContactPage.tsx:22-26 | `Cancel` stays enabled while the POST is pending. Cancelling then creates the contact silently: there's no confirmation, and the list on screen stays stale until the next navigation (probe above). No AC covers it. | In spec 005, which reuses `ContactForm` for edit, decide one of these: disable Cancel while saving; or make "cancel after send" explicit and refresh the list (for example `invalidateQueries` as well as `removeQueries`, or navigate on success regardless). |
+| 32 | Nit | implementer (optional) | ContactForm.tsx:144; ContactsPage.tsx:54 | `FieldError` style differences. The form alert has the class on the `div`, so the inner `p` margins are larger. The list's load-error alert isn't styled as an error. | Optional: style the alert `p`s with `margin: 0`, or a shared `ErrorAlert` style. Fold it into spec 005. |
+| 33 | Should-fix | documenter | specs/004-…/tasks.md Traceability | The table is missing 4 file mappings (above), and its header promises test names that were never filled in. | During `/document`, add the missing files. Then either fill in the test names (generate them from the `[AC-nnn]` titles) or reword the header to "test files". |
+
+**Open items: final calls.** None of these blocks Done.
+| Item | Decision | Owner |
+|---|---|---|
+| Nit 24 (`type="email"`) | Not blocking; leave it. No AC needs it, and `type="text"` has no behavioural cost under `noValidate`. Reword the plan's risk note, which assumes `type="email"`. Reconsider in spec 005, which reuses the form, with a test, because jsdom sanitizes email-input values. | documenter (plan note); follow-up spec 005 |
+| Nit 28 (blank firstName unit row) | Not blocking: unreachable through the page. Add the row when spec 005 touches `contactFormRules` (an update request mapper). | follow-up spec 005 (test-writer) |
+| Status announced on a route change | Not blocking: AC-045 only requires role `status`. Verify with a screen reader in manual step 7. If one-off notices multiply in 005/006, add a persistent live region in `AppLayout`. | follow-up spec (005 or 006) |
+| Push vs replace after a create | Not blocking. Keep push (current): Back returns to an empty create form, which is harmless. No AC pins it, and the T-12 mutant review already noted this. Spec 005 may navigate to the detail page instead (Q7). | follow-up spec 005 |
+| TanStack retry delay (about 7 s before the list error in the real app) | Not blocking: there's no criterion, and untested config shouldn't be added. Record it in the roadmap. A small spec or chore with a test can set `retry` (for example no retry on 4xx, 1 on 5xx). | follow-up spec; documenter records it |
+| Vite favicon | Not blocking: the plan explicitly allows it, and the owner approved the plan. Replace or remove it as a trivial `chore(004)`; no spec needed. | chore (owner) |
+| `path-guard.sh` gap (Bash edits and `git checkout`/`restore` bypass role boundaries; T-08 incident) | Not blocking for spec 004: the T-08 change was restored and verified (orchestrator re-check). I didn't audit authorship per commit, and the hooks can't prove it either. Still unfixed: hooks are unchanged since bootstrap, and `docs/harness-guide.md:59` covers shell redirection but not destructive git. | harness (owner): add a `Bash` PreToolUse hook that denies `git checkout\|restore\|stash\|reset\|clean` and redirection into role-foreign paths for subagents, then document it in `harness-guide.md` and `agent-contracts.md` |
+
+**Doc drift for `/document`** (beyond plan section "Doc drift", which still applies in full):
+- **ADR-0002:** the stack table still says ESLint; the project uses oxlint.
+- **`docs/architecture.md`:** rows 29 and 30 still say "planned".
+- **`web/README.md`:** still the Vite starter README.
+- **`docs/roadmap.md`:** row 004 isn't marked Done yet.
+- **CHANGELOG:** no 004 entry yet.
+- **plan.md:**
+  - The "Components touched" row for ADR-0010 still says "Proposed"; the ADR is Accepted.
+  - The UI table has `{field}-error`; the code uses `contact-{field}-error` (T-09 note).
+  - `ContactSearchForm.initialError` is now `string | null` and required.
+  - The `type="email"` risk note.
+- **tasks.md:** traceability (Finding 33).
+
+**Notes:**
+- **Conformance:** each AC's behaviour was verified by its task review with mutants. FINAL found no cross-task regression. The list rendering order matches plan rules 0 to 5. The form uses `noValidate` and has no `maxLength`/`required`. The client rules mirror `ContactInput`, and the real API returned identical message text in the smoke.
+- **Constitution:** all checks hold. Every AC is traced, all suites are green, there's one dependency and it has an ADR, there are no secrets, and errors are explicit (no swallowed rejections).
+- **Commit:** this FINAL adds only this entry to `review.md`. With no Blocking findings, spec 004 can move to `/document`. The manual steps above are still pending the owner.
+
+### NFR-006 owner browser check: 2026-11-11: PASS
+
+**Setup:** `DEV_API_CMD` and `DEV_WEB_CMD` against the developer DB. 25 seed contacts (`seedNN@seed.example.com`) were added through the API for paging. The owner confirmed the browser results; the API log confirms the server side.
+
+1. `/` redirects to `/contacts`, and the list renders: **pass**.
+2. Create with a unique email lands on the list with the created confirmation: **pass** (the log shows the INSERT).
+3. Search by email lists the contact: **pass** (the log shows the search queries).
+4. Duplicate email: the message shows under Email, Email is focused and the typed values are kept: **pass** (the log shows `UNIQUE constraint failed: Contacts.Email`, mapped to 409).
+5. Reloading `/contacts?search=seed&page=2` restores the box and page, and Back works across search and page changes: **pass** (owner-reported).
+6. API stopped, then Save: `The contact couldn't be saved. Try again.` shows, and the typed values are kept. One Tab after Save re-enables moves focus to a control near the form, so in this browser focus didn't drop to the page body: **pass**. Whether a screen reader announces the alert wasn't checked.
+7. Screen-reader announcement of the post-create `status`: **not checked** (optional; still open for spec 005).
+
+**Result:** NFR-006 is satisfied. Spec 004 is Done.
