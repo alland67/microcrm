@@ -2,7 +2,7 @@
 
 > Living description of the system **as it is**. Maintained by the planner (/plan) and documenter (/document).
 
-**Last updated:** 2026-10-05 (spec 003)
+**Last updated:** 2026-10-07 (spec 004)
 
 ## Overview
 MicroCRM lets a user manage **contacts** and **to-dos** (optionally linked to a contact). A React single-page app talks to an ASP.NET Core REST API backed by SQLite.
@@ -26,8 +26,11 @@ In development, Vite serves the SPA and proxies `/api` to the API on `http://loc
 | Todos feature | `src/MicroCrm.Api/Features/Todos/` | `Todo` entity (`Complete`/`Reopen` rules), `TodoDtos`, `TodoInput` (trim + validate), `TodoListQuery` (paging, `status`, `contactId`), `TodosEndpoints` (create, get by id, list, update, delete, complete, reopen, and `GET /api/contacts/{id}/todos`) | built (spec 003) |
 | Data | `src/MicroCrm.Api/Data/` | `AppDbContext`, `ContactConfiguration` (NOCASE collations, unique `Email` index), `TodoConfiguration` (tick converters, FK `ON DELETE SET NULL`, indexes, `CK_Todos_DoneState`), `SqliteErrors` (unique-violation 2067 and foreign-key-violation 787 checks), `Migrations/` | built |
 | Common | `src/MicroCrm.Api/Common/` | `Paging.cs` (`ListQuery.Parse`, `PagedResponse<T>`), `LikePattern` (escape for `LIKE ... ESCAPE '\'`), `TextNormalization.TrimToNull` | built |
-| Web API client | `web/src/api/` | Typed fetch wrapper + DTO types | planned |
-| Web features | `web/src/features/*` | Pages, forms, query hooks | planned (spec 004+) |
+| Web API client | `web/src/api/` | `client.ts`: the only place that calls `fetch`; `apiGet`/`apiPost` on relative `/api/...` URLs; turns every non-2xx, unreadable body and network failure into one `ApiError` (`kind` `validation` \| `conflict` \| `unexpected`, status, parsed ProblemDetails, field errors). `types.ts`: hand-written DTOs | built (spec 004) |
+| Web routing and shell | `web/src/main.tsx`, `App.tsx`, `components/AppLayout.tsx` | React Router declarative mode (ADR-0010): `main.tsx` wraps `<App />` in `BrowserRouter` and `QueryClientProvider`; `App.tsx` declares the only `<Routes>`: `/` redirects (replace) to `/contacts`, `/contacts`, `/contacts/new`, and `*` renders "Page not found", all inside the `AppLayout` route (header and nav) | built (spec 004) |
+| Web features | `web/src/features/contacts/` | `ContactsPage` (list, search, paging; state in the address), `NewContactPage` + `ContactForm` (create), `useContacts.ts` (TanStack Query hooks, key `['contacts', { page, search }]`), pure modules `listParams`, `contactFormRules`, `contactFormErrors`, `contactName`; plain CSS modules | built (spec 004) |
+| Web components and lib | `web/src/components/`, `web/src/lib/` | Shared presentational pieces (`AppLayout`, `Pagination`, `NotFoundPage`, `FieldError.module.css`); `lib/validationMessages.ts` holds the ADR-0006 message texts once | built (spec 004) |
+| Web test utilities | `web/src/test/` | `setup.ts` (MSW server, `onUnhandledRequest: 'error'`), `msw/` (`handlers`, `server`, `fixtures`, `problems`, `requests`), `renderWithProviders.tsx`, `deferred.ts` | built (spec 004) |
 
 ### Error pipeline (Program.cs, all environments)
 `AddProblemDetails()` -> `UseExceptionHandler()` -> `UseStatusCodePages()`, with `RouteHandlerOptions.ThrowOnBadRequest = false`.
@@ -67,6 +70,18 @@ Max lengths (100/100/254/50/200/4000) are enforced in `ContactInput`, not in the
 
 Index `IX_Todos_IsDone_DueDate` (`IsDone`, `DueDate`) exists for the status filters. `Contact` has no navigation property, so contact responses are unchanged. Contact deletion unlinks the contact's to-dos in the database (see flows); the database is the arbiter of "contact exists" for to-do writes.
 
+## Web routes and data flow
+| Address | Page |
+|---|---|
+| `/` | redirect (replace) to `/contacts` |
+| `/contacts?search=&page=` | contacts list; the search term and page live in the query string (page size fixed at 20) |
+| `/contacts/new` | create form |
+| anything else | "Page not found" |
+
+List flow: address -> `readListParams` (trim, validate; invalid page falls back to 1) -> `useContactsList` with key `['contacts', { page, search }]` -> `apiGet` -> `GET /api/contacts?page&pageSize=20[&search]`. A search or page change pushes a history entry, so Back restores the view. An over-long search term (over 254 after trimming) in the address shows the max-length message and sends no request.
+
+Create flow: `validateContactForm` (mirrors `ContactInput`) -> `apiPost` `POST /api/contacts` -> on success `removeQueries(['contacts'])` and `navigate('/contacts', { state: { createdContactName } })`, so the list mounts loading and shows a `status` confirmation. On failure `ApiError` -> `contactFormErrors` -> field errors (400 with `errors`, 409 shown as the fixed text `A contact with this email already exists.` under Email) or a form-level alert (anything else).
+
 ## Key flows
 - **Create:** `ContactInput.Parse` -> insert -> unique-violation (SQLite 2067) maps to 409.
 - **Update (`PUT /api/contacts/{id}`, full replace):** body binding (400, plain ProblemDetails) -> `ContactInput.Parse(UpdateContactRequest)` (400 with `errors`; shares one core with create) -> tracked lookup (404) -> assign all six fields, `UpdatedAt = TimeProvider` now -> `SaveChangesAsync`. On save: `DbUpdateConcurrencyException` (deleted in between) -> 404; unique violation (SQLite 2067) -> 409; anything else -> 500 via the exception handler. `id` and `createdAt` never change.
@@ -81,7 +96,7 @@ Index `IX_Todos_IsDone_DueDate` (`IsDone`, `DueDate`) exists for the status filt
 
 ## Cross-cutting concerns
 - **Errors:** ProblemDetails everywhere (API); `api/client.ts` converts them to typed errors (web).
-- **Validation:** plain `Parse` functions that trim first (API, ADR-0004); inline form validation mirroring API rules (web). The API is the source of truth.
+- **Validation:** plain `Parse` functions that trim first (API, ADR-0004); inline form validation mirroring API rules (web: `contactFormRules.ts`, texts in `lib/validationMessages.ts`). The API is the source of truth.
 - **Time:** `TimeProvider` injected; all timestamps UTC. A to-do's `dueDate` is a calendar day (`DateOnly`), not an instant.
 - **Auth:** none in v1 (single-user, local). Revisit before any deployment.
 
@@ -90,7 +105,8 @@ Index `IX_Todos_IsDone_DueDate` (`IsDone`, `DueDate`) exists for the status filt
 |---|---|---|---|
 | API integration | xUnit v3 + WebApplicationFactory + named shared-cache in-memory SQLite (ADR-0005) | `tests/MicroCrm.Api.Tests/Integration/` | HTTP contract per AC: status, headers, body, persistence |
 | API unit | xUnit v3 | `tests/MicroCrm.Api.Tests/Unit/` | Pure rules: `ContactInput`, `TodoInput`, `TodoListQuery`, `Todo`, `ListQuery`, `LikePattern` |
-| Web component | Vitest + Testing Library + MSW | `web/src/**/*.test.tsx` | UI behavior per AC against mocked API |
+| Web component | Vitest + Testing Library + user-event + MSW | `web/src/**/*.test.tsx` | UI behavior per AC against mocked API; page tests render `<App />` through `renderWithProviders` (`MemoryRouter`, fresh `QueryClient`) |
+| Web unit | Vitest | `web/src/**/*.test.ts` | Pure modules: `listParams`, `contactFormRules`, `contactFormErrors`, `contactName`, `api/client` |
 | End-to-end | (later) Playwright | `web/e2e/` | A few critical journeys across both tiers |
 
 ## Known risks & tech debt
@@ -100,7 +116,11 @@ Index `IX_Todos_IsDone_DueDate` (`IsDone`, `DueDate`) exists for the status filt
 - **Log noise on expected 400/409.** EF Core logs a `fail:` entry with a stack trace (`Microsoft.EntityFrameworkCore.Update`) for every expected unknown-contact 400 and duplicate-email 409. No values are logged (parameters show as `'?'`). Consider filtering that category if it matters.
 - The status filters scan `Todos` rather than seek `IX_Todos_IsDone_DueDate`, because EF Core emits `NOT ("IsDone")`; without `ANALYZE` SQLite scans. Measured with 10,000 to-dos the slowest request took 31.5 ms (NFR-003 limit 500 ms), so nothing to do until a measured need.
 - Spec 001's `AlterColumn` migrations log an EF Core warning at startup on a fresh database: "PRAGMA foreign_keys = 0 cannot be executed in a transaction". It is harmless for the local SQLite file; ignore it.
+- **TanStack retry delay (web).** `main.tsx` uses the `QueryClient` defaults (3 retries with backoff), so a failed list shows its error after about 7 s in the real app. Tests use `retry: false`, so they don't show it. Follow-up in the roadmap.
+- **The create confirmation lives in history state.** `navigate('/contacts', { state })` keeps it in the history entry, so a reload or Back to that entry shows it again. Any search or page change creates a new entry without it.
+- **Production hosting needs an `index.html` fallback.** Deep links such as `/contacts/new` only work when the host serves `index.html` for unknown paths (the Vite dev server does). Deployment isn't decided (ADR-0010).
+- **JS and .NET whitespace differ.** The client rules use JS `trim()` and `\s`; the API uses .NET `Trim()` and `char.IsWhiteSpace`. They disagree on a few exotic characters (for example U+0085 and U+FEFF). The API stays the source of truth and its field errors are shown (AC-040). Lengths are UTF-16 code units on both sides.
 - Frontend DTO types are hand-written and can drift from the API. Mitigation: reviewer checks both sides for API tasks; consider OpenAPI type generation later (ADR).
 
 ## Decisions
-See `docs/adr/`, especially ADR-0002 (stack), ADR-0003 (case-insensitive SQLite), ADR-0004 (validation and errors), ADR-0005 (test database), ADR-0006 (validation message style), ADR-0007 (date-only `dueDate`), ADR-0008 (contact link enforced by a foreign key), ADR-0009 (to-do timestamps as UTC ticks).
+See `docs/adr/`, especially ADR-0002 (stack), ADR-0003 (case-insensitive SQLite), ADR-0004 (validation and errors), ADR-0005 (test database), ADR-0006 (validation message style), ADR-0007 (date-only `dueDate`), ADR-0008 (contact link enforced by a foreign key), ADR-0009 (to-do timestamps as UTC ticks), ADR-0010 (client-side routing with React Router, declarative mode).

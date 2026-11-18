@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 ### Added
+- Spec 004 (Web: contacts list and create form), web only; no API change:
+  - The Vite starter page is replaced by a small app with a header and nav. Addresses: `/` redirects to `/contacts`; `/contacts` (list); `/contacts/new` (create); any other address shows "Page not found". Routing uses React Router in declarative mode (ADR-0010, new dependency `react-router` ^8.4.0).
+  - Contacts list (`GET /api/contacts`, 20 per page): table sorted as the API returns it, with loading, error (with "Try again"), empty, and no-match states. Search runs on submit (Enter or the Search button), is trimmed, and a blank term clears the filter. The search term and page live in the address (`/contacts?search=ada&page=2`), so reload, sharing and Back restore the view. Invalid `page` values fall back to page 1. A search term over 254 characters after trimming shows `Must be 254 characters or fewer.` and sends no request. Previous/Next paging with `Page {p} of {n}`.
+  - Create form (`POST /api/contacts`): First name, Last name, Email, Phone, Company, Notes. Fields are validated on submit with the API's rules and messages (ADR-0006), focus moves to the first invalid field, and errors update live after a failed submit. Valid values are trimmed and sent once (Save shows `Saving…`); Cancel returns to the list without sending.
+  - After a successful create the app returns to the list, which reloads, with a confirmation `Contact "{name}" created.`. A server 400 shows its field messages, a 409 shows `A contact with this email already exists.` under Email, and any other failure shows `The contact couldn't be saved. Try again.`; typed values are kept.
+  - Web internals: `api/client.ts` is the only code that calls `fetch` and turns failures into `ApiError` (`validation`, `conflict`, `unexpected`); TanStack Query hooks; plain CSS modules; Vitest + Testing Library + MSW test helpers (`renderWithProviders`, `recordRequests`, `deferred`) in `web/src/test/`. 301 web tests.
+  - `web/README.md` is now the project's web README (run, test, lint, typecheck, build, `/api` proxy).
 - Spec 003 (To-dos API):
   - `POST /api/todos` creates a to-do: 201 with a `Location` header and the to-do. `title` is required (max 200); `notes` (max 4000), `dueDate` and `contactId` are optional. Text is trimmed and blank optional values become `null`. A new to-do is always open; `id`, `createdAt`, `updatedAt`, `isDone` and `completedAt` in the body are ignored.
     - Response members, always present (`null` when empty): `id`, `title`, `notes`, `contactId`, `dueDate`, `isDone`, `completedAt`, `createdAt`, `updatedAt`.
@@ -53,6 +60,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
     - `AddContactNameCollation`: NOCASE collation on `FirstName` and `LastName` (rebuilds the table)
   - ADR-0003 (case-insensitive text in SQLite), ADR-0004 (validation and error pipeline), ADR-0005 (integration test database).
 ### Changed
+- ADR-0002 amended: the web lint tool is oxlint (not ESLint), and a client routing row points to ADR-0010. `docs/conventions.md` (Frontend, Frontend tests) and `docs/architecture.md` describe the web app as built.
 - Spec 003: deleting a contact now keeps its to-dos and sets their `contactId` to `null`, atomically in the same database statement and on every delete path (enforced by the foreign key; `DELETE /api/contacts/{id}` is unchanged: still 204 or 404, and the to-dos never block it). The to-dos' other fields, including `updatedAt`, don't change.
 - Spec 003: the API now forces `Foreign Keys=True` on its SQLite connection string, so foreign keys are enforced even if `ConnectionStrings:MicroCrm` says otherwise.
 - `docs/conventions.md`: the JSON row now allows `YYYY-MM-DD` calendar days next to UTC instants; the Errors row lists the new messages; the EF Core section records forced foreign keys, the `Contacts` rebuild hazard, the 787 mapping, and tick timestamps.
@@ -67,6 +75,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 ### Upgrade notes
 - **Spec 003 migration:** `CreateTodos` runs at startup and only adds the `Todos` table and its indexes; existing contact data is unchanged. Don't open `microcrm.db` with a tool that has foreign keys off and delete contacts: the to-dos would keep dangling contact ids (see `docs/architecture.md`, Known risks).
 - **Existing dev `microcrm.db`:** the `AddContactEmailUniqueIndex` migration fails at startup if the file holds emails that differ only in letter case, because the unique index is case-insensitive. Delete the dev `microcrm.db`, or remove the duplicates by hand, before starting the API. Spec 001 is the first schema, so a file from an earlier scaffold is the only likely case.
+
+### Follow-ups (spec 004, not yet scheduled; see `docs/roadmap.md`)
+- A failed contacts list shows its error after about 7 s in the real app (TanStack default retries).
+- The create page's Cancel stays enabled while saving; cancelling then leaves the contact created without a confirmation.
+- The `web/public/favicon.svg` is still the Vite logo.
+- The owner's manual browser check (spec 004 FINAL review) was pending at documentation time.
 
 ### Follow-ups (spec 003, not yet scheduled)
 - Any migration that rebuilds `Contacts` (for example `AlterColumn`) will unlink every to-do. Add a survival test and a safe technique first (ADR-0008).

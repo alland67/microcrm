@@ -59,13 +59,24 @@ src/MicroCrm.Api/
 
 ```
 web/src/
-  api/          client.ts (fetch wrapper, ProblemDetails → typed error), types.ts (DTOs mirroring the API)
+  main.tsx      providers (QueryClientProvider, BrowserRouter) and mount
+  App.tsx       the one <Routes> declaration
+  api/          client.ts (fetch wrapper, ProblemDetails → ApiError), types.ts (DTOs mirroring the API)
   features/
-    contacts/   ContactsPage.tsx, ContactForm.tsx, useContacts.ts (TanStack Query hooks), *.test.tsx
+    contacts/   XxxPage.tsx (one per route), ContactForm.tsx, other components, useContacts.ts (TanStack Query hooks),
+                pure modules (listParams.ts, contactFormRules.ts, contactFormErrors.ts, contactName.ts),
+                XxxPage.module.css, co-located tests
     todos/ ...
-  components/   shared presentational components
-  test/         setup.ts, msw/handlers.ts, msw/server.ts, renderWithProviders.tsx
+  components/   shared presentational components and their CSS modules (AppLayout, Pagination, NotFoundPage, FieldError.module.css)
+  lib/          shared pure helpers (validationMessages.ts: the ADR-0006 texts, once)
+  test/         setup.ts, renderWithProviders.tsx, deferred.ts, msw/ (handlers, server, fixtures, problems, requests)
 ```
+
+- Naming: components and pages are `PascalCase.tsx`; hooks are `useXxx.ts`; pure modules are `camelCase.ts`; CSS modules sit next to their component as `Component.module.css`; a test sits next to its subject as `Subject.test.ts(x)`. When one subject has several test files, add a suffix (`ContactsPage.search.test.tsx`).
+- Put logic in pure modules (address parsing, form rules, error mapping) with their own unit tests; keep components thin.
+- **Routing:** React Router in **declarative mode only** (`<BrowserRouter>`, `<Routes>`/`<Route>`, `<Navigate>`, `<Link>`, `useSearchParams`, `useNavigate`, `useLocation`). No data or framework mode (`createBrowserRouter`, `RouterProvider`, loaders, actions, `@react-router/dev`) and no `react-router-dom`. Server state stays in TanStack Query. See ADR-0010.
+- List state (search term, page) lives in the query string and is parsed and validated in a pure module, not in `useState`.
+- **Errors:** `api/client.ts` throws `ApiError` with `kind`: `validation` (400 with a well-formed `errors` dictionary), `conflict` (409), or `unexpected` (everything else: other statuses, a 400 without `errors`, an unreadable success body, or a network failure). An aborted request rethrows the `AbortError`. Components and pure modules branch on `kind` and never inspect `fetch` responses. Its message is fixed per status and never contains request or response values.
 
 - TypeScript strict; no `any`, no non-null `!` without a comment explaining why.
 - Function components + hooks. Server state lives in **TanStack Query** (`useQuery`/`useMutation`, query keys like `['contacts', { page, search }]`). Local UI state lives in `useState`. No global store unless an ADR adds one.
@@ -78,5 +89,9 @@ web/src/
 - **Vitest + React Testing Library + user-event**, co-located as `Component.test.tsx`.
 - Query by role, label, or text the way a user would (`getByRole('button', { name: /save/i })`). Never by class or test id unless there's no accessible alternative.
 - Mock the network with **MSW** (`web/src/test/msw/`), not by mocking `fetch` or hooks. Each test overrides handlers for its scenario (`server.use(...)`), including error responses shaped as ProblemDetails.
-- Render through `renderWithProviders` (fresh `QueryClient` per test with `retry: false`).
+- Render through `renderWithProviders(ui, { route, queryClient })` from `web/src/test/`: a fresh `QueryClient` per test with `retry: false` and a `MemoryRouter` starting at `route` (default `/`). Page tests render `<App />` at a route. It returns the Testing Library result plus `user` (user-event), `queryClient`, `getLocation()` (`{ pathname, search, state }`), and `goBack()` (browser Back).
+- `web/src/test/setup.ts` starts MSW with `onUnhandledRequest: 'error'`, so a request without a handler fails the test.
+- Test helpers: `msw/problems.ts` builds ProblemDetails responses (`problemJson`, `validationProblem`, `conflictProblem`); `msw/fixtures.ts` builds data (`aContact`, `contactsPage`); `recordRequests()` (`msw/requests.ts`) returns the requests MSW saw (assert on a request body after awaiting the UI outcome); `deferred()` (`deferred.ts`) holds a handler's response open to test loading, saving and late-response states.
+- Paste long values with `user.paste(...)` instead of `user.type(...)`.
+- Run mutation experiments (breaking the code to check a test fails) in a scratch copy of the repo only, never in the working tree.
 - Test names end with the AC ID: `it('lists contacts sorted by name [AC-004]')`.
